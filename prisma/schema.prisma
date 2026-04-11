@@ -1,13 +1,343 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// Schema de base de datos - Sistema de Planillas
+// Basado en: entrevista al cliente + normativa laboral peruana
+// Regímenes: General (DL 728), MYPE (Ley 28015), Construcción Civil (Capeco), Agrario
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USUARIOS DEL SISTEMA
+// ============================================
+
+enum Rol {
+  ADMIN       // Dueño del estudio contable
+  CONTADOR    // Asistentes contables
+  CLIENTE     // Empresario - solo lectura
+}
+
+model Usuario {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  nombre        String
+  apellidos     String
+  password      String    // Hash bcrypt
+  rol           Rol
+  activo        Boolean   @default(true)
+  creadoEn      DateTime  @default(now())
+  actualizadoEn DateTime  @updatedAt
+
+  // Un CLIENTE ve solo sus empresas, un CONTADOR gestiona las asignadas
+  empresas      UsuarioEmpresa[]
+
+  @@map("usuarios")
+}
+
+// Relación muchos a muchos: qué empresas puede ver/gestionar cada usuario
+model UsuarioEmpresa {
+  id         String  @id @default(cuid())
+  usuarioId  String
+  empresaId  String
+  usuario    Usuario @relation(fields: [usuarioId], references: [id])
+  empresa    Empresa @relation(fields: [empresaId], references: [id])
+
+  @@unique([usuarioId, empresaId])
+  @@map("usuarios_empresas")
+}
+
+// ============================================
+// EMPRESAS CLIENTES DEL ESTUDIO CONTABLE
+// ============================================
+
+enum TipoEmpresa {
+  PERSONA_NATURAL
+  EIRL
+  SRL
+  SAC
+  SA
+  OTRO
+}
+
+model Empresa {
+  id              String      @id @default(cuid())
+  ruc             String      @unique
+  razonSocial     String
+  nombreComercial String?
+  tipoEmpresa     TipoEmpresa
+  direccion       String
+  distrito        String
+  provincia       String
+  departamento    String
+  telefono        String?
+  email           String?
+  activa          Boolean     @default(true)
+  creadoEn        DateTime    @default(now())
+  actualizadoEn   DateTime    @updatedAt
+
+  contratos       Contrato[]
+  usuarios        UsuarioEmpresa[]
+
+  @@map("empresas")
+}
+
+// ============================================
+// TRABAJADORES
+// ============================================
+
+model Trabajador {
+  id                String    @id @default(cuid())
+  dni               String    @unique
+  apellidoPaterno   String
+  apellidoMaterno   String
+  nombres           String
+  fechaNacimiento   DateTime
+  sexo              String    // M o F
+  direccion         String?
+  telefono          String?
+  email             String?
+  estadoCivil       String?
+  creadoEn          DateTime  @default(now())
+  actualizadoEn     DateTime  @updatedAt
+
+  contratos         Contrato[]
+  hijos             Hijo[]
+
+  @@map("trabajadores")
+}
+
+// Hijos del trabajador - para asignación familiar
+model Hijo {
+  id              String    @id @default(cuid())
+  trabajadorId    String
+  nombres         String
+  fechaNacimiento DateTime
+  dni             String?
+  trabajador      Trabajador @relation(fields: [trabajadorId], references: [id])
+
+  @@map("hijos")
+}
+
+// ============================================
+// CONTRATOS LABORALES
+// ============================================
+
+enum RegimenLaboral {
+  GENERAL           // DL 728 - régimen general
+  MYPE_MICRO        // Microempresa (hasta 10 trabajadores, hasta 150 UIT)
+  MYPE_PEQUENA      // Pequeña empresa (hasta 100 trabajadores, hasta 1700 UIT)
+  CONSTRUCCION_CIVIL // Capeco
+  AGRARIO           // Ley 31110
+}
+
+enum SistemaPensionario {
+  ONP
+  AFP_HABITAT
+  AFP_INTEGRA
+  AFP_PRIMA
+  AFP_PROFUTURO
+  SIN_REGIMEN       // Casos especiales (pensionistas, etc.)
+}
+
+enum FrecuenciaPago {
+  SEMANAL
+  QUINCENAL
+  MENSUAL
+}
+
+enum TipoContrato {
+  INDEFINIDO
+  PLAZO_FIJO
+  TIEMPO_PARCIAL
+  INICIO_ACTIVIDAD
+  NECESIDAD_MERCADO
+  OBRA_DETERMINADA  // Común en construcción civil
+}
+
+enum CategoriaCC {
+  OPERARIO
+  OFICIAL
+  PEON
+  NINGUNA   // No aplica para otros regímenes
+}
+
+model Contrato {
+  id                  String             @id @default(cuid())
+  trabajadorId        String
+  empresaId           String
+  regimenLaboral      RegimenLaboral
+  tipoContrato        TipoContrato
+  fechaInicio         DateTime
+  fechaFin            DateTime?          // Null = vigente
+  cargo               String
+  remuneracionBase    Decimal            @db.Decimal(10, 2) // Sueldo o jornal base
+  frecuenciaPago      FrecuenciaPago
+  sistemaPensionario  SistemaPensionario
+  tieneAsignacionFamiliar Boolean        @default(false)
+  jornadaSemanal      Int                @default(48)       // Horas semanales
+  categoriaCC         CategoriaCC        @default(NINGUNA)  // Solo construcción civil
+  zonaBonificacion    String?            // Altura, zona peligrosa, etc. (construcción civil)
+  motivoCese          String?
+  activo              Boolean            @default(true)
+  creadoEn            DateTime           @default(now())
+  actualizadoEn       DateTime           @updatedAt
+
+  trabajador          Trabajador         @relation(fields: [trabajadorId], references: [id])
+  empresa             Empresa            @relation(fields: [empresaId], references: [id])
+  planillaDetalles    PlanillaDetalle[]
+  liquidacion         Liquidacion?
+
+  @@map("contratos")
+}
+
+// ============================================
+// PERIODOS Y PLANILLAS
+// ============================================
+
+enum EstadoPeriodo {
+  ABIERTO     // En proceso de carga de datos
+  CALCULADO   // Cálculos ejecutados, pendiente de revisión
+  CERRADO     // Aprobado y declarado
+}
+
+model Periodo {
+  id            String        @id @default(cuid())
+  mes           Int           // 1-12
+  anio          Int
+  estado        EstadoPeriodo @default(ABIERTO)
+  creadoEn      DateTime      @default(now())
+  actualizadoEn DateTime      @updatedAt
+
+  detalles      PlanillaDetalle[]
+
+  @@unique([mes, anio])
+  @@map("periodos")
+}
+
+// Un registro por cada trabajador en cada periodo
+model PlanillaDetalle {
+  id                  String   @id @default(cuid())
+  periodoId           String
+  contratoId          String
+
+  // === DATOS DEL PERIODO (input del cliente) ===
+  diasTrabajados      Int      @default(30)
+  diasNoTrabajados    Int      @default(0)
+  horasExtras25       Decimal  @default(0) @db.Decimal(6, 2)  // Horas extra al 25%
+  horasExtras35       Decimal  @default(0) @db.Decimal(6, 2)  // Horas extra al 35%
+  horasExtras100      Decimal  @default(0) @db.Decimal(6, 2)  // Horas extra al 100% (nocturna/feriado)
+  minutosAtraso       Int      @default(0)
+  faltas              Int      @default(0)
+  feriados            Int      @default(0) // Días feriados trabajados
+
+  // === INGRESOS (calculados por el sistema) ===
+  remuneracionBasica  Decimal  @db.Decimal(10, 2)
+  horasExtrasTotal    Decimal  @default(0) @db.Decimal(10, 2)
+  asignacionFamiliar  Decimal  @default(0) @db.Decimal(10, 2)
+  bonificacionCC      Decimal  @default(0) @db.Decimal(10, 2) // BUC construcción civil
+  movilidadCC         Decimal  @default(0) @db.Decimal(10, 2) // Bonificación movilidad CC
+  bonificacionAltura  Decimal  @default(0) @db.Decimal(10, 2) // Bonificación zona/altura CC
+  otrosIngresos       Decimal  @default(0) @db.Decimal(10, 2)
+  totalIngresos       Decimal  @db.Decimal(10, 2)
+
+  // === DESCUENTOS TRABAJADOR ===
+  descuentoOnp        Decimal  @default(0) @db.Decimal(10, 2) // 13%
+  descuentoAfp        Decimal  @default(0) @db.Decimal(10, 2) // Variable por AFP
+  comisionAfp         Decimal  @default(0) @db.Decimal(10, 2) // Comisión AFP
+  primaSeguroAfp      Decimal  @default(0) @db.Decimal(10, 2) // Prima de seguro AFP
+  retencionQuinta     Decimal  @default(0) @db.Decimal(10, 2) // Impuesto a la renta 5ta cat
+  otrosDescuentos     Decimal  @default(0) @db.Decimal(10, 2) // Adelantos, préstamos
+  totalDescuentos     Decimal  @db.Decimal(10, 2)
+
+  // === APORTES EMPLEADOR (no se descuenta al trabajador) ===
+  essalud             Decimal  @default(0) @db.Decimal(10, 2) // 9% régimen general
+  sctr                Decimal  @default(0) @db.Decimal(10, 2) // Solo construcción civil
+  totalAportesEmpleador Decimal @db.Decimal(10, 2)
+
+  // === NETO ===
+  netoPagar           Decimal  @db.Decimal(10, 2)
+
+  creadoEn            DateTime @default(now())
+  actualizadoEn       DateTime @updatedAt
+
+  periodo             Periodo  @relation(fields: [periodoId], references: [id])
+  contrato            Contrato @relation(fields: [contratoId], references: [id])
+  boleta              Boleta?
+
+  @@unique([periodoId, contratoId]) // Un trabajador no puede tener dos registros en el mismo periodo
+  @@map("planilla_detalles")
+}
+
+// ============================================
+// BOLETAS DE PAGO
+// ============================================
+
+model Boleta {
+  id                 String          @id @default(cuid())
+  planillaDetalleId  String          @unique
+  archivoUrl         String?         // Ruta al PDF generado
+  generadaEn         DateTime        @default(now())
+  enviada            Boolean         @default(false)
+  enviadaEn          DateTime?
+
+  planillaDetalle    PlanillaDetalle @relation(fields: [planillaDetalleId], references: [id])
+
+  @@map("boletas")
+}
+
+// ============================================
+// LIQUIDACIONES DE BENEFICIOS SOCIALES
+// ============================================
+
+model Liquidacion {
+  id                    String   @id @default(cuid())
+  contratoId            String   @unique // Una liquidación por contrato cesado
+  fechaCalculo          DateTime @default(now())
+
+  // CTS
+  ctsTruncaMeses        Int      @default(0)
+  ctsTruncaDias         Int      @default(0)
+  ctsTruncaTotal        Decimal  @db.Decimal(10, 2)
+
+  // Vacaciones
+  vacacionesTruncaMeses Int      @default(0)
+  vacacionesTruncaDias  Int      @default(0)
+  vacacionesTruncaTotal Decimal  @db.Decimal(10, 2)
+
+  // Gratificación
+  gratificacionTruncaMeses Int   @default(0)
+  gratificacionTruncaDias  Int   @default(0)
+  gratificacionTruncaTotal Decimal @db.Decimal(10, 2)
+
+  // Totales
+  totalBruto            Decimal  @db.Decimal(10, 2)
+  descuentos            Decimal  @default(0) @db.Decimal(10, 2)
+  totalNeto             Decimal  @db.Decimal(10, 2)
+
+  archivoUrl            String?  // PDF de la liquidación
+
+  contrato              Contrato @relation(fields: [contratoId], references: [id])
+
+  @@map("liquidaciones")
+}
+
+// ============================================
+// PARÁMETROS LEGALES (valores que cambian)
+// ============================================
+
+model ParametroLegal {
+  id              String   @id @default(cuid())
+  codigo          String   // Ej: "RMV", "ONP_TASA", "AFP_HABITAT_APORTE", "UIT", "ESSALUD_TASA"
+  descripcion     String
+  valor           Decimal  @db.Decimal(10, 4) // Decimal para porcentajes y montos
+  vigenciaDesde   DateTime
+  vigenciaHasta   DateTime?  // Null = vigente actualmente
+  creadoEn        DateTime @default(now())
+
+  @@index([codigo, vigenciaDesde])
+  @@map("parametros_legales")
 }
