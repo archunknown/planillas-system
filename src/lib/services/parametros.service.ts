@@ -1,6 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '@/lib/prisma';
 
 export async function getParametroVigente(codigo: string, fecha: Date = new Date()): Promise<number> {
   const parametro = await prisma.parametroLegal.findFirst({

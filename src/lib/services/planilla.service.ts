@@ -1,4 +1,5 @@
-import { PrismaClient, SistemaPensionario, RegimenLaboral } from '@prisma/client';
+import { SistemaPensionario, RegimenLaboral } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 import {
   calcularPlanilla,
@@ -7,8 +8,6 @@ import {
   type ResultadoPlanilla,
 } from '../calculations';
 import { getParametroVigente, getAfpTasas } from './parametros.service';
-
-const prisma = new PrismaClient();
 
 function regimenLaboralToRegimenType(regimen: RegimenLaboral): RegimenType {
   const map: Record<RegimenLaboral, RegimenType> = {
