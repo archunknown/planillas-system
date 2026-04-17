@@ -12,7 +12,7 @@ export const configAgrario: ConfigRegimen = {
   asignacionFamiliarObligatoria: true,
 };
 
-export function calcularPlanillaAgrario(datos: DatosPeriodoInput, remuneracionDiariaAgraria: number): ResultadoPlanilla {
+export function calcularPlanillaAgrario(datos: DatosPeriodoInput, remuneracionDiariaAgraria: number, tasaEssaludAgrario?: number): ResultadoPlanilla {
   const remuneracionBasica = round2(remuneracionDiariaAgraria * datos.diasTrabajados);
   const asignacionFamiliar = calcularAsignacionFamiliar(datos.rmv, datos.tieneAsignacionFamiliar, false, datos.cantidadHijos);
 
@@ -43,7 +43,8 @@ export function calcularPlanillaAgrario(datos: DatosPeriodoInput, remuneracionDi
 
   const totalDescuentos = round2(descuentoOnp + descuentoAfp + comisionAfp + primaSeguroAfp + retencionQuinta);
 
-  const essalud = round2(remuneracionBruta * 0.06);
+  // Ley 31110 Art.9: tasa condicional según tamaño de empresa
+  const essalud = round2(remuneracionBruta * (tasaEssaludAgrario ?? datos.tasaEssalud));
   const sctr = 0;
   const totalAportesEmpleador = round2(essalud + sctr);
 

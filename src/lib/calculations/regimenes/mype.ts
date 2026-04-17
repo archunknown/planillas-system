@@ -20,7 +20,7 @@ export const configMypePequena: ConfigRegimen = {
   asignacionFamiliarObligatoria: true,
 };
 
-export function calcularPlanillaMype(datos: DatosPeriodoInput, esMicro: boolean): ResultadoPlanilla {
+export function calcularPlanillaMype(datos: DatosPeriodoInput, esMicro: boolean, cuotaSisMicro: number = 15): ResultadoPlanilla {
   const remuneracionBasica = calcularRemuneracionProporcional(datos.remuneracionBase, datos.diasTrabajados);
   const valorHora = calcularValorHora(datos.remuneracionBase, datos.jornadaSemanal);
   const { total: horasExtrasTotal } = calcularHorasExtras(valorHora, datos.horasExtras25, datos.horasExtras35, datos.horasExtras100);
@@ -55,8 +55,8 @@ export function calcularPlanillaMype(datos: DatosPeriodoInput, esMicro: boolean)
 
   const totalDescuentos = round2(descuentoOnp + descuentoAfp + comisionAfp + primaSeguroAfp + retencionQuinta);
 
-  const tasaEssalud = esMicro ? 0.045 : 0.09;
-  const essalud = round2(remuneracionBruta * tasaEssalud);
+  // Microempresa: trabajador afiliado al SIS, empleador paga cuota fija mensual (Ley 30056)
+  const essalud = esMicro ? cuotaSisMicro : round2(remuneracionBruta * 0.09);
   const sctr = 0;
   const totalAportesEmpleador = round2(essalud + sctr);
 
