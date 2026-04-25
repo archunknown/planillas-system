@@ -19,6 +19,7 @@ export interface DatosPeriodoInput {
   retencionesQuintaAnteriores: number;
   tasaEssalud: number;
   tasaSctr: number;
+  tasaEssaludGeneral?: number;
 }
 
 export interface ResultadoPlanilla {

@@ -19,6 +19,7 @@ export interface DatosCCExtra {
   porcentajeBuc: number;
   movilidadDiaria: number;
   trabajaEnAltura: boolean;
+  porcentajeBonifAltura?: number;
 }
 
 export function calcularPlanillaCC(datos: DatosPeriodoInput, datosCC: DatosCCExtra): ResultadoPlanilla {
@@ -26,7 +27,7 @@ export function calcularPlanillaCC(datos: DatosPeriodoInput, datosCC: DatosCCExt
   const bonificacionCC = round2(datosCC.jornalDiario * datosCC.porcentajeBuc * datosCC.diasTrabajados);
   const movilidadCC = round2(datosCC.movilidadDiaria * datosCC.diasTrabajados);
   const bonificacionAltura = datosCC.trabajaEnAltura
-    ? round2(datosCC.jornalDiario * 0.07 * datosCC.diasTrabajados)
+    ? round2(datosCC.jornalDiario * (datosCC.porcentajeBonifAltura ?? 0.07) * datosCC.diasTrabajados)
     : 0;
   const asignacionFamiliar = calcularAsignacionFamiliar(datos.rmv, datos.tieneAsignacionFamiliar, true, datos.cantidadHijos);
 
@@ -57,7 +58,7 @@ export function calcularPlanillaCC(datos: DatosPeriodoInput, datosCC: DatosCCExt
 
   const totalDescuentos = round2(descuentoOnp + descuentoAfp + comisionAfp + primaSeguroAfp + retencionQuinta);
 
-  const essalud = round2(remuneracionBruta * 0.09);
+  const essalud = round2(remuneracionBruta * (datos.tasaEssaludGeneral ?? 0.09));
   const sctr = round2(remuneracionBruta * datos.tasaSctr);
   const totalAportesEmpleador = round2(essalud + sctr);
 

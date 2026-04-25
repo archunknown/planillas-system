@@ -15,11 +15,13 @@ export interface AfpResult {
 
 export function calcularDescuentoAfp(
   remuneracionBruta: number,
-  tasas: AfpTasas
+  tasas: AfpTasas,
+  rma?: number
 ): AfpResult {
   const aporte = round2(remuneracionBruta * tasas.aporte);
   const comision = round2(remuneracionBruta * tasas.comision);
-  const primaSeguro = round2(remuneracionBruta * tasas.primaSeguro);
+  const baseSeguro = rma !== undefined ? Math.min(remuneracionBruta, rma) : remuneracionBruta;
+  const primaSeguro = round2(baseSeguro * tasas.primaSeguro);
   const total = round2(aporte + comision + primaSeguro);
   return { aporte, comision, primaSeguro, total };
 }

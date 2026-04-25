@@ -8,7 +8,7 @@ export const configMypeMicro: ConfigRegimen = {
   tieneGratificaciones: false,
   tieneCts: false,
   diasVacaciones: 15,
-  tasaEssalud: 0.045,
+  tasaEssalud: 0,
   asignacionFamiliarObligatoria: false,
 };
 
@@ -56,7 +56,7 @@ export function calcularPlanillaMype(datos: DatosPeriodoInput, esMicro: boolean,
   const totalDescuentos = round2(descuentoOnp + descuentoAfp + comisionAfp + primaSeguroAfp + retencionQuinta);
 
   // Microempresa: trabajador afiliado al SIS, empleador paga cuota fija mensual (Ley 30056)
-  const essalud = esMicro ? cuotaSisMicro : round2(remuneracionBruta * 0.09);
+  const essalud = esMicro ? cuotaSisMicro : round2(remuneracionBruta * (datos.tasaEssaludGeneral ?? 0.09));
   const sctr = 0;
   const totalAportesEmpleador = round2(essalud + sctr);
 

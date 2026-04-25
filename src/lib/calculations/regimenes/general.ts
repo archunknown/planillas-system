@@ -45,7 +45,7 @@ export function calcularPlanillaGeneral(datos: DatosPeriodoInput): ResultadoPlan
 
   const totalDescuentos = round2(descuentoOnp + descuentoAfp + comisionAfp + primaSeguroAfp + retencionQuinta);
 
-  const essalud = round2(remuneracionBruta * 0.09);
+  const essalud = round2(remuneracionBruta * (datos.tasaEssaludGeneral ?? 0.09));
   const sctr = 0;
   const totalAportesEmpleador = round2(essalud + sctr);
 
