@@ -20,6 +20,8 @@ export interface DatosPeriodoInput {
   tasaEssalud: number;
   tasaSctr: number;
   tasaEssaludGeneral?: number;
+  esTiempoParcial?: boolean;
+  horasDiariasJornada?: number;
 }
 
 export interface ResultadoPlanilla {

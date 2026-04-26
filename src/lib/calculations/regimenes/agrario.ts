@@ -4,10 +4,15 @@ import type { DatosPeriodoInput, ResultadoPlanilla, ConfigRegimen } from './type
 
 const round2 = (value: number): number => Math.round(value * 100) / 100;
 
+/**
+ * Vacaciones agrarias: 30 días calendario por año de servicio.
+ * Base legal: Ley 31110 art. 3 literal g), vigente desde 01/01/2021.
+ * Derogó el régimen anterior de la Ley 27360 que otorgaba 15 días.
+ */
 export const configAgrario: ConfigRegimen = {
   tieneGratificaciones: false,
   tieneCts: false,
-  diasVacaciones: 15,
+  diasVacaciones: 30,
   tasaEssalud: 0.06,
   asignacionFamiliarObligatoria: true,
 };

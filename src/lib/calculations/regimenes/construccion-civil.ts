@@ -26,8 +26,14 @@ export function calcularPlanillaCC(datos: DatosPeriodoInput, datosCC: DatosCCExt
   const remuneracionBasica = round2(datosCC.jornalDiario * datosCC.diasTrabajados);
   const bonificacionCC = round2(datosCC.jornalDiario * datosCC.porcentajeBuc * datosCC.diasTrabajados);
   const movilidadCC = round2(datosCC.movilidadDiaria * datosCC.diasTrabajados);
+  /**
+   * Bonificación por trabajo en altura: 8% sobre jornal básico.
+   * Convenio Colectivo CAPECO-FTCCP 2026 (R.M. 197-2025-TR).
+   * Aplica a labores en exterior a partir del cuarto piso o diez metros.
+   * Default actualizado el 24/04/2026 (auditoría legal). Históricamente fue 7%.
+   */
   const bonificacionAltura = datosCC.trabajaEnAltura
-    ? round2(datosCC.jornalDiario * (datosCC.porcentajeBonifAltura ?? 0.07) * datosCC.diasTrabajados)
+    ? round2(datosCC.jornalDiario * (datosCC.porcentajeBonifAltura ?? 0.08) * datosCC.diasTrabajados)
     : 0;
   const asignacionFamiliar = calcularAsignacionFamiliar(datos.rmv, datos.tieneAsignacionFamiliar, true, datos.cantidadHijos);
 

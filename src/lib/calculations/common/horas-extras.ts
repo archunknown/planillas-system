@@ -13,6 +13,30 @@ export interface HorasExtrasResult {
   total: number;
 }
 
+/**
+ * Clasifica el total de horas extras diarias en sobretasas según orden temporal.
+ * Base legal: D.S. 007-2002-TR (TUO Ley de Jornada), art. 10.
+ * Las primeras 2 horas se pagan con recargo de 25%; a partir de la tercera, 35%.
+ *
+ * @param totalHorasExtrasDelDia Total de horas extras trabajadas en un mismo día
+ * @param umbralPrimerasHoras Cantidad de horas con sobretasa reducida (default 2)
+ */
+export function clasificarHorasExtras(
+  totalHorasExtrasDelDia: number,
+  umbralPrimerasHoras: number = 2
+): { horas25: number; horas35: number } {
+  if (totalHorasExtrasDelDia <= 0) {
+    return { horas25: 0, horas35: 0 };
+  }
+  if (totalHorasExtrasDelDia <= umbralPrimerasHoras) {
+    return { horas25: totalHorasExtrasDelDia, horas35: 0 };
+  }
+  return {
+    horas25: umbralPrimerasHoras,
+    horas35: totalHorasExtrasDelDia - umbralPrimerasHoras,
+  };
+}
+
 export function calcularHorasExtras(
   valorHora: number,
   horas25: number,

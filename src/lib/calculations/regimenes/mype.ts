@@ -22,7 +22,7 @@ export const configMypePequena: ConfigRegimen = {
 
 export function calcularPlanillaMype(datos: DatosPeriodoInput, esMicro: boolean, cuotaSisMicro: number = 15): ResultadoPlanilla {
   const remuneracionBasica = calcularRemuneracionProporcional(datos.remuneracionBase, datos.diasTrabajados);
-  const valorHora = calcularValorHora(datos.remuneracionBase, datos.jornadaSemanal);
+  const valorHora = calcularValorHora(datos.remuneracionBase, datos.horasDiariasJornada ?? 8);
   const { total: horasExtrasTotal } = calcularHorasExtras(valorHora, datos.horasExtras25, datos.horasExtras35, datos.horasExtras100);
   const asignacionFamiliar = esMicro
     ? 0

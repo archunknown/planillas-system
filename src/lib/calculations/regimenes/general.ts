@@ -14,7 +14,7 @@ export const configGeneral: ConfigRegimen = {
 
 export function calcularPlanillaGeneral(datos: DatosPeriodoInput): ResultadoPlanilla {
   const remuneracionBasica = calcularRemuneracionProporcional(datos.remuneracionBase, datos.diasTrabajados);
-  const valorHora = calcularValorHora(datos.remuneracionBase, datos.jornadaSemanal);
+  const valorHora = calcularValorHora(datos.remuneracionBase, datos.horasDiariasJornada ?? 8);
   const { total: horasExtrasTotal } = calcularHorasExtras(valorHora, datos.horasExtras25, datos.horasExtras35, datos.horasExtras100);
   const asignacionFamiliar = calcularAsignacionFamiliar(datos.rmv, datos.tieneAsignacionFamiliar, false, datos.cantidadHijos);
 
@@ -45,7 +45,16 @@ export function calcularPlanillaGeneral(datos: DatosPeriodoInput): ResultadoPlan
 
   const totalDescuentos = round2(descuentoOnp + descuentoAfp + comisionAfp + primaSeguroAfp + retencionQuinta);
 
-  const essalud = round2(remuneracionBruta * (datos.tasaEssaludGeneral ?? 0.09));
+  /**
+   * Base imponible mínima EsSalud: no inferior a 1 RMV (proporcional a días trabajados).
+   * Base legal: Ley 26790 art. 6 modificado por Ley 28791.
+   * Excepción: trabajadores a tiempo parcial (< 4h/día) cotizan sobre remuneración real
+   * sin piso, según D.S. 001-96-TR Reglamento Ley de Fomento al Empleo.
+   */
+  const baseEsSalud = datos.esTiempoParcial
+    ? remuneracionBruta
+    : Math.max(remuneracionBruta, round2(datos.rmv * datos.diasTrabajados / 30));
+  const essalud = round2(baseEsSalud * (datos.tasaEssaludGeneral ?? 0.09));
   const sctr = 0;
   const totalAportesEmpleador = round2(essalud + sctr);
 
