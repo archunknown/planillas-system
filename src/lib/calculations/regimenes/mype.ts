@@ -1,5 +1,7 @@
 import { calcularRemuneracionProporcional, calcularValorHora, calcularHorasExtras, calcularAsignacionFamiliar } from '../common';
 import { calcularDescuentoOnp, calcularDescuentoAfp, calcularRetencionQuinta } from '../descuentos';
+import { calcularGratificacion } from '../beneficios/gratificaciones';
+import type { GratificacionInput, GratificacionResult } from '../beneficios/gratificaciones';
 import type { DatosPeriodoInput, ResultadoPlanilla, ConfigRegimen } from './types';
 
 const round2 = (value: number): number => Math.round(value * 100) / 100;
@@ -19,6 +21,25 @@ export const configMypePequena: ConfigRegimen = {
   tasaEssalud: 0.09,
   asignacionFamiliarObligatoria: true,
 };
+
+/**
+ * Pequeña empresa: la gratificación equivale a la remuneración promedio mensual.
+ * Base legal: D.S. 013-2013-PRODUCE art. 41, Ley 30056.
+ * El factor 0.50 se aplica al resultado de la gratificación general.
+ * Para CTS de pequeña empresa usar calcularCtsPequenaEmpresa (beneficios/cts.ts).
+ * D.S. 013-2013-PRODUCE art. 42.
+ */
+export function calcularGratificacionMypePequena(
+  input: GratificacionInput,
+  factorReduccion: number = 0.50
+): GratificacionResult {
+  const grat = calcularGratificacion(input);
+  return {
+    gratificacionBase: round2(grat.gratificacionBase * factorReduccion),
+    bonificacionExtraordinaria: round2(grat.bonificacionExtraordinaria * factorReduccion),
+    total: round2(grat.total * factorReduccion),
+  };
+}
 
 export function calcularPlanillaMype(datos: DatosPeriodoInput, esMicro: boolean, cuotaSisMicro: number = 15): ResultadoPlanilla {
   const remuneracionBasica = calcularRemuneracionProporcional(datos.remuneracionBase, datos.diasTrabajados);

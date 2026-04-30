@@ -7,7 +7,7 @@ import type { DatosPeriodoInput } from './types';
 // bonificacionCC     = jornalDiario × porcentajeBuc × diasTrabajados
 // movilidadCC        = movilidadDiaria × diasTrabajados
 // bonificacionAltura = jornalDiario × 0.07 × diasTrabajados  (solo si trabajaEnAltura)
-// asignacionFamiliar = RMV × 0.10  (per-hijo, esConstruccionCivil=true)
+// asignacionFamiliar = RMV × 0.10  (monto fijo, Ley 25129 — no por hijo)
 //
 // remuneracionBruta (base pensionable) = remuneracionBasica + bonificacionCC + asignacionFamiliar
 //   ⚠️  movilidad y bonificacionAltura NO entran en remuneracionBruta — no son pensionables

@@ -16,6 +16,28 @@ export interface CtsResult {
   total: number;
 }
 
+/**
+ * CTS para régimen Pequeña Empresa (Ley MYPE).
+ * Base legal: D.S. 013-2013-PRODUCE art. 42, D.S. 008-2008-TR.
+ *
+ * Fórmula: 15 remuneraciones diarias por año completo de servicios.
+ * Para períodos parciales: (ctsAnual/12) × meses + (ctsAnual/360) × días.
+ * El tope acumulado de 90 remuneraciones diarias se gestiona a nivel de servicio.
+ *
+ * Reutiliza CtsInput ya que los campos son idénticos al régimen general.
+ */
+export function calcularCtsPequenaEmpresa(input: CtsInput): number {
+  const { remuneracionBase, asignacionFamiliar, promedioHorasExtras6Meses, sextoGratificacion, mesesComputablesCompletos, diasComputablesRestantes } = input;
+
+  const remuneracionComputable = round2(remuneracionBase + asignacionFamiliar + promedioHorasExtras6Meses + sextoGratificacion);
+  const ctsAnualCompleta = (remuneracionComputable / 30) * 15;
+
+  const montoPorMeses = (ctsAnualCompleta / 12) * mesesComputablesCompletos;
+  const montoPorDias = (ctsAnualCompleta / 360) * diasComputablesRestantes;
+
+  return round2(montoPorMeses + montoPorDias);
+}
+
 export function calcularCts(input: CtsInput): CtsResult {
   const { remuneracionBase, asignacionFamiliar, promedioHorasExtras6Meses, sextoGratificacion, mesesComputablesCompletos, diasComputablesRestantes } = input;
 

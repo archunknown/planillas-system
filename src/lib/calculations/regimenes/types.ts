@@ -22,6 +22,12 @@ export interface DatosPeriodoInput {
   tasaEssaludGeneral?: number;
   esTiempoParcial?: boolean;
   horasDiariasJornada?: number;
+  recibeBETA?: boolean;
+  agrario?: {
+    modoPago: 'PRORRATEADO' | 'SEMESTRAL';
+    porcentajeGratifProrrateo?: number;
+    porcentajeCtsProrrateo?: number;
+  };
 }
 
 export interface ResultadoPlanilla {
@@ -32,6 +38,7 @@ export interface ResultadoPlanilla {
     bonificacionCC: number;
     movilidadCC: number;
     bonificacionAltura: number;
+    bonificacionAgraria?: number;
     otrosIngresos: number;
     totalIngresos: number;
   };
