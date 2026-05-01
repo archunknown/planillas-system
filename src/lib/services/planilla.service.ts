@@ -1,6 +1,6 @@
 import { SistemaPensionario, RegimenLaboral } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { Decimal } from '@prisma/client/runtime/library';
+import { Decimal } from '@prisma/client/runtime/client';
 import {
   calcularPlanilla,
   type RegimenType,
@@ -147,6 +147,26 @@ export async function calcularPlanillaPeriodo(
       const { calcularPlanillaAgrario } = await import('../calculations/regimenes/agrario');
       // remuneracionDiariaAgraria: sin datos adicionales, se usa remuneracionBase / 30 como aproximación
       resultado = calcularPlanillaAgrario(datos, datos.remuneracionBase / 30, tasaEssaludAgrario);
+    } else if (regimenType === 'CONSTRUCCION_CIVIL') {
+      const cat = contrato.categoriaCC;
+      const jornalKey = cat === 'OPERARIO' ? 'JORNAL_CC_OPERARIO' : cat === 'OFICIAL' ? 'JORNAL_CC_OFICIAL' : 'JORNAL_CC_PEON';
+      const bucKey    = cat === 'OPERARIO' ? 'BUC_CC_OPERARIO'    : cat === 'OFICIAL' ? 'BUC_CC_OFICIAL'    : 'BUC_CC_PEON';
+      const [jornalDiario, porcentajeBuc, movilidadDiaria] = await Promise.all([
+        getParametroVigente(jornalKey, fechaPeriodo),
+        getParametroVigente(bucKey, fechaPeriodo),
+        getParametroVigente('MOVILIDAD_CC_LABORABLE', fechaPeriodo),
+      ]);
+      resultado = calcularPlanilla({
+        regimen: 'CONSTRUCCION_CIVIL',
+        datos,
+        datosConstruccionCivil: {
+          jornalDiario,
+          categoriaCC: cat as 'OPERARIO' | 'OFICIAL' | 'PEON',
+          porcentajeBuc,
+          movilidadDiaria,
+          trabajaEnAltura: contrato.zonaBonificacion?.toUpperCase() === 'ALTURA',
+        },
+      });
     } else {
       resultado = calcularPlanilla({ regimen: regimenType, datos });
     }

@@ -1,0 +1,135 @@
+═══════════════════════════════════════════════════════════════════════════════
+ INFORME DE CAMBIOS — Fix-Lote 5
+ Motor de cálculo de planillas — tests de integración E2E + fix servicio CC
+═══════════════════════════════════════════════════════════════════════════════
+
+METADATOS
+─────────
+Fecha de ejecución : 2026-04-30
+Lote               : 5 (integración E2E)
+Lotes previos      : 1–4 (ver informes anteriores)
+Rama               : main
+Committer          : archunknown
+
+
+RESUMEN DE EJECUCIÓN
+────────────────────
+Se implementaron 7 tests de integración E2E para planilla.service.ts que
+ejercitan el flujo completo DB → servicio → motor → DB. Se detectó y corrigió
+1 bug real en el servicio (régimen Construcción Civil). No se modificaron seeds,
+schema ni funciones puras del motor.
+
+
+FIX 1 — Bug: import Decimal path incorrecto (Prisma 7)
+  Archivo : src/lib/services/planilla.service.ts
+  Cambio  : `import { Decimal } from '@prisma/client/runtime/library'` →
+            `import { Decimal } from '@prisma/client/runtime/client'`
+  Causa   : En Prisma 7 el sub-path `/runtime/library` no existe; el correcto
+            es `/runtime/client`.
+  Impacto : El módulo no podía ser importado en Vitest — bloqueaba todos los
+            tests de integración. Tests unitarios previos no lo afectaban
+            porque no importaban planilla.service.ts.
+
+FIX 2 — Bug: rama CONSTRUCCION_CIVIL no construía datosConstruccionCivil
+  Archivo : src/lib/services/planilla.service.ts
+  Cambio  : Nueva rama `else if (regimenType === 'CONSTRUCCION_CIVIL')` entre
+            la rama AGRARIO y el `else` genérico.
+            Lee 3 parámetros de seed según categoriaCC del contrato:
+              JORNAL_CC_{OPERARIO|OFICIAL|PEON}
+              BUC_CC_{OPERARIO|OFICIAL|PEON}
+              MOVILIDAD_CC_LABORABLE
+            Construye datosConstruccionCivil y llama a calcularPlanilla().
+            Detecta trabajaEnAltura via contrato.zonaBonificacion === 'ALTURA'.
+  Antes   : El else genérico llamaba calcularPlanilla() sin
+            datosConstruccionCivil → lanzaba 'datosConstruccionCivil es
+            requerido' en runtime para cualquier contrato CC.
+  Impacto : 1 test de integración (T4) lo verifica de extremo a extremo.
+
+NUEVO — Tests de integración E2E
+  Archivo : src/lib/services/planilla.service.integration.test.ts (NUEVO)
+  Tests   : 7 (T1–T7; T8 cese/liquidación fuera de alcance — sin método
+            de servicio)
+
+  T1 — GENERAL rem=1500 30d ONP
+       Verifica: totalIngresos=1500, ONP=195, EsSalud=135, neto=1305,
+                 Periodo.estado='CALCULADO'.
+
+  T2 — GENERAL rem=800 30d ONP (piso RMV EsSalud)
+       Verifica: essalud=101.70 (base imponible mínima = RMV 1130 × 9%),
+                 neto=696.
+       Base legal: Ley 26790 art. 6 mod. Ley 28791.
+
+  T3 — MYPE_PEQUENA rem=1500 AFP Habitat 1 hijo
+       Verifica DB: asignacionFamiliar=113, descuentoAfp=161.30,
+                    comisionAfp=23.71, primaSeguroAfp=22.10.
+       Verifica puro: calcularGratificacionMypePequena(rem=1500, AF=113,
+                    meses=6, tasa=0.09) → gratBase=806.50, bonif=72.58,
+                    total=879.09.
+
+  T4 — CONSTRUCCION_CIVIL OPERARIO 26 días (stub pre-creado)
+       Verifica: remBasica=2321.80 (89.30×26), bonificacionCC=742.98
+                 (89.30×0.32×26), movilidadCC=223.60 (8.60×26),
+                 ONP=398.42 (base=3064.78×13%), essalud=275.83, neto=2889.96.
+       Técnica: pre-creación de Periodo + PlanillaDetalle stub con
+                diasTrabajados=26 antes de llamar al servicio.
+
+  T5 — AGRARIO rem=1500 30d PRORRATEADO (default motor)
+       Verifica: remBasica=1895.70 (rb=1500, grat=249.90, cts=145.80),
+                 essalud(6%)=113.74, ONP=246.44, neto=1649.26.
+       Nota: datos.agrario omitido → motor usa default PRORRATEADO (Lote 4).
+
+  T6 — 3 trabajadores (GENERAL + MYPE_PEQUENA + CC PEON) mismo periodo
+       Verifica: count(PlanillaDetalle para el periodo) = 3.
+
+  T7 — Idempotencia: segunda llamada no duplica
+       Verifica: dos llamadas calcularPlanillaPeriodo(mismos args) →
+                 count=1, neto=1305 (valores correctos segunda pasada).
+
+PRUEBAS
+───────
+Resultado final : 123 / 123 passed (0 failed)
+Tests previos   : 116 (Lotes 1–4, sin cambios)
+Tests nuevos    : 7 (integración E2E)
+Tests rotos     : 0
+
+Distribución:
+  src/lib/services/planilla.service.integration.test.ts   7 tests (NUEVO)
+
+ARCHIVOS MODIFICADOS
+────────────────────
+src/lib/services/planilla.service.ts          FIX 1 + FIX 2
+src/lib/services/planilla.service.integration.test.ts    NUEVO
+
+DESVIACIONES RESPECTO AL BRIEF
+───────────────────────────────
+1. T8 (cese y liquidación) NO implementado.
+   Motivo: el modelo Liquidacion existe en el schema pero no hay ningún
+   método de servicio que lo cree. Implementarlo requeriría un nuevo método
+   (calcularLiquidacion o similar), lo cual está fuera del alcance del brief
+   que restringe: "NO modificar funciones puras del motor".
+
+2. bonificacionAgraria (BETA) no verificable E2E.
+   Motivo: el campo recibeBETA no existe en el modelo Contrato — no hay
+   forma de activar BETA desde el servicio sin una migración de schema.
+   Verificado mediante tests unitarios en agrario.test.ts (Lote 4).
+
+3. Para T5 se usaron 30 días (default de PlanillaDetalle) en vez de 26.
+   El modo PRORRATEADO queda verificado igualmente. La variación por días
+   parciales ya está cubierta por tests unitarios del motor.
+
+DEUDA TÉCNICA PENDIENTE
+───────────────────────
+- Método calcularLiquidacion() falta en planilla.service.ts (T8 pendiente).
+- recibeBETA debería ser campo en Contrato para poder activar BETA E2E.
+- El servicio usa remuneracionBase del contrato para proyectar quinta
+  categoría incluso en CC (donde la remuneración real depende del jornal);
+  esto puede subestimar la retención para CC de alta remuneración.
+- esConstruccionCivil en calcularAsignacionFamiliar sigue siendo letra muerta
+  (ver Lote 4).
+
+CONFIRMACIÓN
+────────────
+Todos los cambios son reversibles vía git revert.
+No se modificaron seeds, prisma schema ni funciones puras del motor.
+Suite verde: 123/123.
+═══════════════════════════════════════════════════════════════════════════════
