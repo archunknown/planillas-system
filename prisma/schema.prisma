@@ -180,6 +180,8 @@ model Contrato {
   jornadaSemanal      Int                @default(48)       // Horas semanales
   categoriaCC         CategoriaCC        @default(NINGUNA)  // Solo construcción civil
   zonaBonificacion    String?            // Altura, zona peligrosa, etc. (construcción civil)
+  recibeBETA          Boolean            @default(false)
+  esTiempoParcial     Boolean            @default(false)
   motivoCese          String?
   activo              Boolean            @default(true)
   creadoEn            DateTime           @default(now())
@@ -295,22 +297,24 @@ model Boleta {
 model Liquidacion {
   id                    String   @id @default(cuid())
   contratoId            String   @unique // Una liquidación por contrato cesado
+  fechaCese             DateTime
   fechaCalculo          DateTime @default(now())
+  remuneracionPendiente Decimal  @default(0) @db.Decimal(10, 2)
 
   // CTS
   ctsTruncaMeses        Int      @default(0)
   ctsTruncaDias         Int      @default(0)
-  ctsTruncaTotal        Decimal  @db.Decimal(10, 2)
+  ctsTrunca             Decimal  @db.Decimal(10, 2)
 
   // Vacaciones
   vacacionesTruncaMeses Int      @default(0)
   vacacionesTruncaDias  Int      @default(0)
-  vacacionesTruncaTotal Decimal  @db.Decimal(10, 2)
+  vacacionesTruncas     Decimal  @db.Decimal(10, 2)
 
   // Gratificación
   gratificacionTruncaMeses Int   @default(0)
   gratificacionTruncaDias  Int   @default(0)
-  gratificacionTruncaTotal Decimal @db.Decimal(10, 2)
+  gratificacionTrunca   Decimal  @db.Decimal(10, 2)
 
   // Totales
   totalBruto            Decimal  @db.Decimal(10, 2)
