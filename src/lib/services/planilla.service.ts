@@ -1,4 +1,4 @@
-import { SistemaPensionario, RegimenLaboral } from '@prisma/client';
+import { SistemaPensionario, RegimenLaboral, type Liquidacion } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { Decimal } from '@prisma/client/runtime/client';
 import {
@@ -36,6 +36,27 @@ function toDecimal(value: number): Decimal {
 
 function getUltimoDiaMes(mes: number, anio: number): Date {
   return new Date(Date.UTC(anio, mes, 0)); // día 0 del mes siguiente = último día del mes actual
+}
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+function diasEntre(a: Date, b: Date): number {
+  return Math.floor((b.getTime() - a.getTime()) / 86_400_000);
+}
+
+function inicioSemestreCTS(d: Date): Date {
+  const m = d.getUTCMonth(), y = d.getUTCFullYear();
+  // May-Oct (4-9): semestre May 1; Nov-Dec (10-11): semestre Nov 1; Jan-Apr (0-3): semestre Nov 1 prev year
+  return m >= 4 && m <= 9
+    ? new Date(Date.UTC(y, 4, 1))
+    : m >= 10
+      ? new Date(Date.UTC(y, 10, 1))
+      : new Date(Date.UTC(y - 1, 10, 1));
+}
+
+function inicioSemestreGratif(d: Date): Date {
+  const m = d.getUTCMonth(), y = d.getUTCFullYear();
+  return m < 6 ? new Date(Date.UTC(y, 0, 1)) : new Date(Date.UTC(y, 6, 1));
 }
 
 export async function calcularPlanillaPeriodo(
@@ -203,4 +224,91 @@ export async function calcularPlanillaPeriodo(
     where: { id: periodo.id },
     data: { estado: 'CALCULADO' },
   });
+}
+
+/**
+ * Calcula y persiste la liquidación de beneficios sociales al cese.
+ * Base legal: D.S. 001-97-TR (TUO LCTS), Ley 27735, D.Leg. 713.
+ * Los descuentos en liquidación requieren autorización expresa del trabajador
+ * (D.S. 001-97-TR art. 45); por defecto se aplican en 0.
+ * La remuneración pendiente debe ser registrada por el caller si existe.
+ */
+export async function calcularLiquidacionContrato(
+  contratoId: string,
+  fechaCese: Date,
+): Promise<Liquidacion> {
+  const contrato = await prisma.contrato.findUniqueOrThrow({
+    where: { id: contratoId },
+    include: { trabajador: { include: { hijos: true } } },
+  });
+
+  const rb = contrato.remuneracionBase.toNumber();
+  const rmv = await getParametroVigente('RMV', fechaCese);
+  const tasaEs = await getParametroVigente('ESSALUD_GENERAL', fechaCese);
+  const af = contrato.tieneAsignacionFamiliar && contrato.trabajador.hijos.length > 0
+    ? round2(rmv * 0.10) : 0;
+
+  // CTS trunca — semestre CTS en curso
+  const dcCTS = diasEntre(inicioSemestreCTS(fechaCese), fechaCese);
+  const ctsMeses = Math.floor(dcCTS / 30);
+  const ctsDias  = dcCTS % 30;
+  const { calcularCts } = await import('../calculations/beneficios/cts');
+  const ctsR = calcularCts({
+    remuneracionBase: rb, asignacionFamiliar: af,
+    promedioHorasExtras6Meses: 0, sextoGratificacion: 0,
+    mesesComputablesCompletos: ctsMeses, diasComputablesRestantes: ctsDias,
+  });
+
+  // Gratificación trunca — semestre gratif en curso, solo base (Ley 30334 no aplica a trunca)
+  const dcGrat = diasEntre(inicioSemestreGratif(fechaCese), fechaCese);
+  const gratMeses = Math.floor(dcGrat / 30);
+  const gratDias  = dcGrat % 30;
+  const { calcularGratificacion } = await import('../calculations/beneficios/gratificaciones');
+  const gratR = calcularGratificacion({
+    remuneracionBase: rb, asignacionFamiliar: af,
+    mesesComputables: gratMeses, diasComputables: gratDias, tasaEssalud: tasaEs,
+  });
+
+  // Vacaciones truncas — desde fechaInicio, módulo 12 meses completos
+  const dcVac = diasEntre(contrato.fechaInicio, fechaCese);
+  const vacMeses = Math.floor(dcVac / 30) % 12;
+  const vacDias  = dcVac % 30;
+  const { calcularVacacionesTruncas } = await import('../calculations/beneficios/vacaciones');
+  const vacR = calcularVacacionesTruncas({
+    remuneracionBase: rb, asignacionFamiliar: af,
+    mesesComputables: vacMeses, diasComputables: vacDias,
+  });
+
+  const { calcularLiquidacion } = await import('../calculations/beneficios/liquidacion');
+  const liq = calcularLiquidacion({
+    ctsTrunca: ctsR.total,
+    gratificacionTrunca: gratR.gratificacionBase,
+    vacacionesTruncas: vacR.total,
+    remuneracionPendiente: 0,
+    descuentos: 0,
+  });
+
+  const result = await prisma.liquidacion.upsert({
+    where: { contratoId },
+    create: {
+      contratoId, fechaCese,
+      ctsTruncaMeses: ctsMeses, ctsTruncaDias: ctsDias, ctsTrunca: toDecimal(ctsR.total),
+      vacacionesTruncaMeses: vacMeses, vacacionesTruncaDias: vacDias, vacacionesTruncas: toDecimal(vacR.total),
+      gratificacionTruncaMeses: gratMeses, gratificacionTruncaDias: gratDias,
+      gratificacionTrunca: toDecimal(gratR.gratificacionBase),
+      totalBruto: toDecimal(liq.totalBruto), descuentos: toDecimal(0), totalNeto: toDecimal(liq.totalNeto),
+    },
+    update: {
+      fechaCese,
+      ctsTruncaMeses: ctsMeses, ctsTruncaDias: ctsDias, ctsTrunca: toDecimal(ctsR.total),
+      vacacionesTruncaMeses: vacMeses, vacacionesTruncaDias: vacDias, vacacionesTruncas: toDecimal(vacR.total),
+      gratificacionTruncaMeses: gratMeses, gratificacionTruncaDias: gratDias,
+      gratificacionTrunca: toDecimal(gratR.gratificacionBase),
+      totalBruto: toDecimal(liq.totalBruto), descuentos: toDecimal(0), totalNeto: toDecimal(liq.totalNeto),
+    },
+  });
+
+  await prisma.contrato.update({ where: { id: contratoId }, data: { activo: false } });
+
+  return result;
 }

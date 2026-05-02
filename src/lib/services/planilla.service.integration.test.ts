@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { prisma } from '@/lib/prisma';
-import { calcularPlanillaPeriodo } from './planilla.service';
+import { calcularPlanillaPeriodo, calcularLiquidacionContrato } from './planilla.service';
 import { calcularGratificacionMypePequena } from '@/lib/calculations/regimenes/mype';
 
 // Año ficticio para no colisionar con datos reales
@@ -302,6 +302,33 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
 
     expect(count).toBe(3);
     expect(periodo.estado).toBe('CALCULADO');
+  });
+
+  // ─── Test 8: Cese y liquidación ───────────────────────────────────────────
+
+  it('T8 Cese 15/06/2026, GENERAL rem=1500, ONP, sin hijos → ctsTrunca=187.50, totalNeto=2250.00', async () => {
+    // CTS trunca: semestre CTS mayo-oct en curso.
+    // May 1 → Jun 15: 1 mes completo + 15 días.
+    // (1500/12)×1 + (1500/360)×15 = 125 + 62.50 = 187.50
+    // Base legal: D.S. 001-97-TR (TUO LCTS), Ley 27735.
+    //
+    // Gratif trunca: semestre ene-jun → 01/01/2026 → 5m+15d → (1500/6)×5+(1500/180)×15 = 1375.00
+    // Vacaciones truncas: desde 01/01/2026 → 5m+15d → (1500/12)×5+(1500/360)×15 = 687.50
+    // descuentos=0, totalNeto = 187.50+1375.00+687.50 = 2250.00
+    const e = await crearEmpresa();
+    const t = await crearTrabajador();
+    const c = await crearContrato(t.id, e.id); // GENERAL, rem=1500, ONP, sin hijos, inicio 01/01/2026
+
+    const fechaCese = new Date(Date.UTC(2026, 5, 15)); // 15 junio 2026
+    const liq = await calcularLiquidacionContrato(c.id, fechaCese);
+
+    expect(liq.ctsTrunca.toNumber()).toBeCloseTo(187.50, 2);
+    expect(liq.gratificacionTrunca.toNumber()).toBeCloseTo(1375.00, 2);
+    expect(liq.vacacionesTruncas.toNumber()).toBeCloseTo(687.50, 2);
+    expect(liq.totalNeto.toNumber()).toBeCloseTo(2250.00, 2);
+
+    const contratoActualizado = await prisma.contrato.findUniqueOrThrow({ where: { id: c.id } });
+    expect(contratoActualizado.activo).toBe(false);
   });
 
   // ─── Test 7: Idempotencia ─────────────────────────────────────────────────
