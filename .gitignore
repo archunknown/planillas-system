@@ -49,3 +49,7 @@ next-env.d.ts
 # Prisma
 prisma/migrations/dev
 
+2026-04-30_03.txt
+2026-05-02_01.txt
+AUDIT_LEGAL.md
+.vscode/
