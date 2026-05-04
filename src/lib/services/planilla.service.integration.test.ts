@@ -352,4 +352,185 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     expect(count).toBe(1);
     expect(d.netoPagar.toNumber()).toBeCloseTo(1305, 2);
   });
+
+  // ─── Fix 1: recibeBETA propagado ──────────────────────────────────────────
+
+  it('F1-BETA AGRARIO recibeBETA=true → BETA se suma a totalIngresos (no a base EsSalud)', async () => {
+    // Ley 31110 art. 8 inc. 2: BETA = 30% RMV proporcional a días trabajados.
+    // RMV=1130, 30d → BETA = round2(1130×0.30×1) = 339.00
+    // remuneracionBasica PRORRATEADO = 1895.70; totalIngresos = 1895.70+339 = 2234.70
+    // ONP sobre 1895.70 (no incluye BETA): round2(1895.70×0.13) = 246.44
+    // netoPagar = 2234.70 - 246.44 = 1988.26
+    const e = await crearEmpresa();
+    const t = await crearTrabajador();
+    await crearContrato(t.id, e.id, { regimenLaboral: 'AGRARIO', remuneracionBase: 1500, recibeBETA: true } as Parameters<typeof crearContrato>[2]);
+
+    await calcularPlanillaPeriodo(e.id, MES, ANIO);
+
+    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { mes_anio: { mes: MES, anio: ANIO } } });
+    const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
+
+    expect(d.totalIngresos.toNumber()).toBeCloseTo(2234.70, 2);
+    expect(d.netoPagar.toNumber()).toBeCloseTo(1988.26, 2);
+  });
+
+  it('F1-SIN-BETA AGRARIO recibeBETA=false (default) → totalIngresos sin BETA', async () => {
+    // Regresión: sin BETA, mismos valores que T5.
+    const e = await crearEmpresa();
+    const t = await crearTrabajador();
+    await crearContrato(t.id, e.id, { regimenLaboral: 'AGRARIO', remuneracionBase: 1500 });
+
+    await calcularPlanillaPeriodo(e.id, MES, ANIO);
+
+    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { mes_anio: { mes: MES, anio: ANIO } } });
+    const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
+
+    expect(d.totalIngresos.toNumber()).toBeCloseTo(1895.70, 2);
+    expect(d.netoPagar.toNumber()).toBeCloseTo(1649.26, 2);
+  });
+
+  // ─── Fix 2: esTiempoParcial propagado ────────────────────────────────────
+
+  it('F2-PARCIAL GENERAL rem=600 esTiempoParcial=true → EsSalud sobre rem real sin piso RMV', async () => {
+    // D.S. 001-96-TR Reglamento Ley Fomento al Empleo: trabajadores <4h/día
+    // cotizan EsSalud sobre remuneración real, sin piso de 1 RMV.
+    // essalud = round2(600×0.09) = 54.00; neto = 600 - round2(600×0.13) = 522.00
+    const e = await crearEmpresa();
+    const t = await crearTrabajador();
+    await crearContrato(t.id, e.id, { remuneracionBase: 600, esTiempoParcial: true } as Parameters<typeof crearContrato>[2]);
+
+    await calcularPlanillaPeriodo(e.id, MES, ANIO);
+
+    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { mes_anio: { mes: MES, anio: ANIO } } });
+    const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
+
+    expect(d.essalud.toNumber()).toBeCloseTo(54.00, 2);
+    expect(d.netoPagar.toNumber()).toBeCloseTo(522.00, 2);
+  });
+
+  it('F2-COMPLETO GENERAL rem=600 esTiempoParcial=false → EsSalud aplica piso RMV', async () => {
+    // Ley 26790 art. 6 mod. Ley 28791: base mínima = 1 RMV para tiempo completo.
+    // essalud = round2(max(600,1130)×0.09) = round2(1130×0.09) = 101.70
+    const e = await crearEmpresa();
+    const t = await crearTrabajador();
+    await crearContrato(t.id, e.id, { remuneracionBase: 600 });
+
+    await calcularPlanillaPeriodo(e.id, MES, ANIO);
+
+    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { mes_anio: { mes: MES, anio: ANIO } } });
+    const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
+
+    expect(d.essalud.toNumber()).toBeCloseTo(101.70, 2);
+  });
+
+  // ─── Fix 3: Asignación escolar CC ────────────────────────────────────────
+
+  it('F3-CON-ESCOLAR CC OPERARIO 1 hijo en edad escolar → asignacionEscolar=223.25 (prorrateo mensual)', async () => {
+    // Convenio CAPECO-FTCCP 2026 (R.M. 197-2025-TR): 30 jornales/año por hijo 3-24 años.
+    // jornal OPERARIO = 89.30; montoAnual = 89.30×30×1 = 2679; mensual = 2679/12 = 223.25
+    // No remunerativo: no afecta base ONP/AFP ni EsSalud.
+    // totalIngresos = 3794.28 (motor) + 223.25 = 4017.53
+    // netoPagar     = 3334.56 (motor) + 223.25 = 3557.81
+    const e = await crearEmpresa();
+    const t = await crearTrabajador();
+    await crearContrato(t.id, e.id, {
+      regimenLaboral: 'CONSTRUCCION_CIVIL',
+      tipoContrato: 'OBRA_DETERMINADA',
+      categoriaCC: 'OPERARIO',
+      remuneracionBase: 0,
+    });
+    // Hijo en edad escolar en 2099 (año del test): nacido 2085 → ~14 años
+    await prisma.hijo.create({
+      data: { trabajadorId: t.id, nombres: 'Hijo Escolar', fechaNacimiento: new Date('2085-01-01') },
+    });
+
+    await calcularPlanillaPeriodo(e.id, MES, ANIO);
+
+    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { mes_anio: { mes: MES, anio: ANIO } } });
+    const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
+
+    expect(d.asignacionEscolar.toNumber()).toBeCloseTo(223.25, 2);
+    expect(d.totalIngresos.toNumber()).toBeCloseTo(4017.53, 2);
+    expect(d.netoPagar.toNumber()).toBeCloseTo(3557.81, 2);
+  });
+
+  it('F3-SIN-ESCOLAR CC OPERARIO hijo >24 años → asignacionEscolar=0', async () => {
+    // Hijo nacido 2060 → ~39 años en 2099 → fuera del rango 3-24 → asignacionEscolar=0
+    const e = await crearEmpresa();
+    const t = await crearTrabajador();
+    await crearContrato(t.id, e.id, {
+      regimenLaboral: 'CONSTRUCCION_CIVIL',
+      tipoContrato: 'OBRA_DETERMINADA',
+      categoriaCC: 'OPERARIO',
+      remuneracionBase: 0,
+    });
+    await prisma.hijo.create({
+      data: { trabajadorId: t.id, nombres: 'Hijo Adulto', fechaNacimiento: new Date('2060-01-01') },
+    });
+
+    await calcularPlanillaPeriodo(e.id, MES, ANIO);
+
+    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { mes_anio: { mes: MES, anio: ANIO } } });
+    const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
+
+    expect(d.asignacionEscolar.toNumber()).toBeCloseTo(0, 2);
+    expect(d.totalIngresos.toNumber()).toBeCloseTo(3794.28, 2);
+  });
+
+  // ─── Fix 4: sextoGratificacion en liquidación ─────────────────────────────
+
+  it('F4-SIN-HISTORIAL liquidación sin registros julio/dic → sextoGratif=0, ctsTrunca=187.50', async () => {
+    // Regresión: contrato iniciado 01/01/2026, sin PlanillaDetalle en julio/diciembre.
+    // D.S. 001-97-TR: sin historial → sextoGratificacion=0 (mismo resultado que T8).
+    const e = await crearEmpresa();
+    const t = await crearTrabajador();
+    const c = await crearContrato(t.id, e.id);
+
+    const liq = await calcularLiquidacionContrato(c.id, new Date(Date.UTC(2026, 5, 15)));
+
+    expect(liq.ctsTrunca.toNumber()).toBeCloseTo(187.50, 2);
+  });
+
+  it('F4-CON-HISTORIAL liquidación con registro diciembre → sextoGratif=250, ctsTrunca=218.75', async () => {
+    // D.S. 001-97-TR art. 19: remuneración computable incluye 1/6 de gratificación.
+    // Historial: 1 detalle diciembre con remuneracionBasica=1500
+    // sextoGratif = round2(1500/6) = 250
+    // remuneracionComputable = 1500+0+0+250 = 1750
+    // CTS trunca (1m+15d): round2((1750/12)×1 + (1750/360)×15) = 145.83+72.92 = 218.75
+    // totalNeto = 218.75 + 1375.00 + 687.50 = 2281.25
+    const e = await crearEmpresa();
+    const t = await crearTrabajador();
+    const c = await crearContrato(t.id, e.id);
+
+    // Pre-crear período diciembre 2025 con PlanillaDetalle proxy de gratificación
+    const periodoGratif = await prisma.periodo.upsert({
+      where: { mes_anio: { mes: 12, anio: 2025 } },
+      create: { mes: 12, anio: 2025 },
+      update: {},
+    });
+    await prisma.planillaDetalle.create({
+      data: {
+        periodoId: periodoGratif.id,
+        contratoId: c.id,
+        remuneracionBasica: 1500,
+        totalIngresos: 1500,
+        totalDescuentos: 195,
+        totalAportesEmpleador: 135,
+        netoPagar: 1305,
+      },
+    });
+
+    try {
+      const liq = await calcularLiquidacionContrato(c.id, new Date(Date.UTC(2026, 5, 15)));
+
+      expect(liq.ctsTrunca.toNumber()).toBeCloseTo(218.75, 2);
+      expect(liq.gratificacionTrunca.toNumber()).toBeCloseTo(1375.00, 2);
+      expect(liq.vacacionesTruncas.toNumber()).toBeCloseTo(687.50, 2);
+      expect(liq.totalNeto.toNumber()).toBeCloseTo(2281.25, 2);
+    } finally {
+      // Limpiar período histórico fuera del año de test (ANIO=2099)
+      await prisma.planillaDetalle.deleteMany({ where: { periodoId: periodoGratif.id } });
+      await prisma.periodo.deleteMany({ where: { id: periodoGratif.id } });
+    }
+  });
 });

@@ -242,6 +242,7 @@ model PlanillaDetalle {
   bonificacionCC      Decimal  @default(0) @db.Decimal(10, 2) // BUC construcción civil
   movilidadCC         Decimal  @default(0) @db.Decimal(10, 2) // Bonificación movilidad CC
   bonificacionAltura  Decimal  @default(0) @db.Decimal(10, 2) // Bonificación zona/altura CC
+  asignacionEscolar   Decimal  @default(0) @db.Decimal(10, 2) // CAPECO-FTCCP 2026: 30 jornales/hijo escolar
   otrosIngresos       Decimal  @default(0) @db.Decimal(10, 2)
   totalIngresos       Decimal  @db.Decimal(10, 2)
 

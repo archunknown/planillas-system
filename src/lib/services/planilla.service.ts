@@ -153,11 +153,17 @@ export async function calcularPlanillaPeriodo(
       retencionesQuintaAnteriores: 0,
       tasaEssalud: await getParametroVigente('ESSALUD_GENERAL', fechaPeriodo),
       tasaSctr: 0,
+      // Ley 31110 art. 8 inc. 2: BETA solo si el contrato lo indica
+      recibeBETA: contrato.recibeBETA,
+      // Ley 26790 art. 6 / D.S. 001-96-TR: tiempo parcial excluye piso RMV en EsSalud
+      esTiempoParcial: contrato.esTiempoParcial,
     };
 
     const regimenType = regimenLaboralToRegimenType(contrato.regimenLaboral);
 
     let resultado: ResultadoPlanilla;
+    // Convenio CAPECO-FTCCP 2026 (R.M. 197-2025-TR): asignación escolar — no remunerativa
+    let asignacionEscolarMonto = 0;
 
     if (regimenType === 'MYPE_MICRO') {
       const cuotaSis = await getParametroVigente('SIS_MYPE_MICRO_CUOTA', fechaPeriodo);
@@ -188,6 +194,25 @@ export async function calcularPlanillaPeriodo(
           trabajaEnAltura: contrato.zonaBonificacion?.toUpperCase() === 'ALTURA',
         },
       });
+
+      // Asignación escolar: 30 jornales/año por hijo en edad escolar (3-24 años).
+      // Convenio CAPECO-FTCCP 2026 (R.M. 197-2025-TR). Carácter NO remunerativo:
+      // no integra base imponible para EsSalud ni aportes pensionarios.
+      const { calcularAsignacionEscolar } = await import('../calculations/common/asignacion-escolar');
+      const hijosEnEdadEscolar = contrato.trabajador.hijos.filter(h => {
+        const edadAnios = diasEntre(h.fechaNacimiento, fechaPeriodo) / 365.25;
+        return edadAnios >= 3 && edadAnios <= 24;
+      });
+      if (hijosEnEdadEscolar.length > 0) {
+        const ae = calcularAsignacionEscolar({
+          jornalBasicoDiario: jornalDiario,
+          cantidadHijosEnEdadEscolar: hijosEnEdadEscolar.length,
+          modalidad: 'PRORRATEO_MENSUAL',
+        });
+        asignacionEscolarMonto = ae.montoTotal;
+        resultado.ingresos.totalIngresos = round2(resultado.ingresos.totalIngresos + asignacionEscolarMonto);
+        resultado.netoPagar = round2(resultado.netoPagar + asignacionEscolarMonto);
+      }
     } else {
       resultado = calcularPlanilla({ regimen: regimenType, datos });
     }
@@ -202,6 +227,7 @@ export async function calcularPlanillaPeriodo(
         bonificacionCC: toDecimal(resultado.ingresos.bonificacionCC),
         movilidadCC: toDecimal(resultado.ingresos.movilidadCC),
         bonificacionAltura: toDecimal(resultado.ingresos.bonificacionAltura),
+        asignacionEscolar: toDecimal(asignacionEscolarMonto),
         otrosIngresos: toDecimal(resultado.ingresos.otrosIngresos),
         totalIngresos: toDecimal(resultado.ingresos.totalIngresos),
         descuentoOnp: toDecimal(resultado.descuentos.descuentoOnp),
@@ -248,6 +274,19 @@ export async function calcularLiquidacionContrato(
   const af = contrato.tieneAsignacionFamiliar && contrato.trabajador.hijos.length > 0
     ? round2(rmv * 0.10) : 0;
 
+  // D.S. 001-97-TR art. 19: remuneración computable incluye 1/6 de gratificación semestral.
+  // Se busca en PlanillaDetalle de julio (mes=7) y diciembre (mes=12) como proxy
+  // de las gratificaciones pagadas; si no hay historial, sexto=0 (contrato <6 meses).
+  const gratifDetalles = await prisma.planillaDetalle.findMany({
+    where: { contratoId, periodo: { mes: { in: [7, 12] } } },
+    include: { periodo: { select: { mes: true, anio: true } } },
+    orderBy: [{ periodo: { anio: 'desc' } }, { periodo: { mes: 'desc' } }],
+    take: 2,
+  });
+  const sextoGratificacion = gratifDetalles.length > 0
+    ? round2(gratifDetalles.reduce((s, d) => s + d.remuneracionBasica.toNumber(), 0) / 6)
+    : 0;
+
   // CTS trunca — semestre CTS en curso
   const dcCTS = diasEntre(inicioSemestreCTS(fechaCese), fechaCese);
   const ctsMeses = Math.floor(dcCTS / 30);
@@ -255,7 +294,7 @@ export async function calcularLiquidacionContrato(
   const { calcularCts } = await import('../calculations/beneficios/cts');
   const ctsR = calcularCts({
     remuneracionBase: rb, asignacionFamiliar: af,
-    promedioHorasExtras6Meses: 0, sextoGratificacion: 0,
+    promedioHorasExtras6Meses: 0, sextoGratificacion,
     mesesComputablesCompletos: ctsMeses, diasComputablesRestantes: ctsDias,
   });
 
