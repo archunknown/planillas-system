@@ -53,3 +53,5 @@ prisma/migrations/dev
 2026-05-02_01.txt
 AUDIT_LEGAL.md
 .vscode/
+
+*.txt
