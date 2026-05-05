@@ -79,6 +79,7 @@ model Empresa {
   creadoEn        DateTime    @default(now())
   actualizadoEn   DateTime    @updatedAt
 
+  trabajadores    Trabajador[]
   contratos       Contrato[]
   usuarios        UsuarioEmpresa[]
 
@@ -91,7 +92,8 @@ model Empresa {
 
 model Trabajador {
   id                String    @id @default(cuid())
-  dni               String    @unique
+  empresaId         String
+  dni               String
   apellidoPaterno   String
   apellidoMaterno   String
   nombres           String
@@ -101,22 +103,26 @@ model Trabajador {
   telefono          String?
   email             String?
   estadoCivil       String?
+  eliminadoEn       DateTime?
   creadoEn          DateTime  @default(now())
   actualizadoEn     DateTime  @updatedAt
 
+  empresa           Empresa    @relation(fields: [empresaId], references: [id])
   contratos         Contrato[]
   hijos             Hijo[]
 
+  @@unique([dni, empresaId])
   @@map("trabajadores")
 }
 
 // Hijos del trabajador - para asignación familiar
 model Hijo {
-  id              String    @id @default(cuid())
+  id              String     @id @default(cuid())
   trabajadorId    String
   nombres         String
   fechaNacimiento DateTime
   dni             String?
+  eliminadoEn     DateTime?
   trabajador      Trabajador @relation(fields: [trabajadorId], references: [id])
 
   @@map("hijos")

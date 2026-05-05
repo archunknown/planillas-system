@@ -1,0 +1,95 @@
+REPORTE LOTE 2/4 — trabajador + hijo CRUD + tests
+Fecha: 2026-05-05
+
+ARCHIVOS CREADOS / MODIFICADOS
+
+Creados:
+  src/lib/validations/trabajador.ts
+  src/lib/validations/hijo.ts
+  src/lib/services/trabajador.service.ts
+  src/lib/services/trabajador.service.test.ts
+  src/lib/services/trabajador.service.integration.test.ts
+  prisma/migrations/20260505230000_add_trabajador_empresa_softdelete/migration.sql
+  REPORTE_LOTE_2_TRABAJADOR.txt
+
+Modificados:
+  prisma/schema.prisma             — Trabajador: +empresaId FK, +eliminadoEn, -@unique(dni), +@@unique([dni,empresaId]); Hijo: +eliminadoEn; Empresa: +trabajadores relation
+  src/lib/validations/index.ts     — re-export trabajador, hijo
+  src/lib/services/index.ts        — re-export trabajador.service
+  src/lib/services/planilla.service.integration.test.ts — crearTrabajador() ahora recibe empresaId
+
+MIGRACIÓN PRISMA
+
+Nombre: 20260505230000_add_trabajador_empresa_softdelete
+Método: migrate diff → migration.sql manual → migrate deploy
+(migrate dev bloqueó por warning interactivo de constraint único; protocolo alternativo documentado abajo)
+
+SQL aplicado:
+  DROP INDEX "trabajadores_dni_key";
+  ALTER TABLE "hijos" ADD COLUMN "eliminadoEn" TIMESTAMP(3);
+  ALTER TABLE "trabajadores"
+    ADD COLUMN "eliminadoEn" TIMESTAMP(3),
+    ADD COLUMN "empresaId" TEXT NOT NULL DEFAULT '';
+  ALTER TABLE "trabajadores" ALTER COLUMN "empresaId" DROP DEFAULT;
+  CREATE UNIQUE INDEX "trabajadores_dni_empresaId_key" ON "trabajadores"("dni","empresaId");
+  ALTER TABLE "trabajadores" ADD CONSTRAINT "trabajadores_empresaId_fkey"
+    FOREIGN KEY ("empresaId") REFERENCES "empresas"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+Pre-flight: SELECT COUNT(*) FROM trabajadores = 0. Migración sin backfill.
+
+RESULTADO npm test POST-LOTE
+
+  Test Files  21 passed (21)   [+2 nuevos]
+        Tests 217 passed (217) [+49 nuevos]
+     Duration  4.37s
+  Cero regresiones.
+
+COBERTURA DEL SERVICIO TRABAJADOR
+
+trabajador.service.test.ts (Zod, sin Prisma, 22 tests):
+  CrearTrabajadorSchema: DNI 8 dígitos, sexo M/F, fechas, email, campos opcionales
+  ActualizarTrabajadorSchema: objeto vacío sin defaults, DNI y sexo inválidos
+  ListarTrabajadoresSchema: defaults, porPagina>100
+  CrearHijoSchema: fechas, DNI opcional, edge cases
+
+trabajador.service.integration.test.ts (E2E Postgres, 27 tests):
+  crear: mínimo, DUPLICATE misma empresa, OK diferente empresa, FK empresa inexistente, FK empresa eliminada
+  crearConHijos: transacción exitosa con 2 hijos, rollback si empresa no existe
+  obtenerPorId: happy path, NOT_FOUND, NOT_FOUND si eliminado
+  obtenerPorDniEmpresa: happy path, NOT_FOUND
+  listarPorEmpresa: solo activos, incluirEliminados, sin mezcla entre empresas
+  actualizar: parcial, NOT_FOUND
+  eliminar+restaurar: soft delete + listado, INVALID_STATE doble eliminar, restaurar, INVALID_STATE restaurar no-eliminado
+  sub-CRUD hijo: agregar, NOT_FOUND trabajador, actualizar, eliminarHijo soft, INVALID_STATE doble eliminar hijo, listarHijos con/sin eliminados, hijos intactos en DB cuando trabajador eliminado
+
+DECISIONES DESVIADAS DEL PLAN ORIGINAL
+
+D1 — migrate dev no disponible en entorno no-interactivo con warnings de constraint.
+  Prisma 7 requiere TTY cuando hay warnings que necesitan confirmación.
+  Solución: migrate diff → SQL manual → migrate deploy.
+  Los procesos anteriores habían dejado advisory locks (pg_advisory_lock 72707369)
+  que bloquearon intentos posteriores; se liberaron con pg_terminate_backend.
+  Para lotes 3 y 4: si hay warnings en migrate dev, usar el mismo protocolo.
+
+D2 — planilla.service.integration.test.ts actualizado.
+  crearTrabajador() ahora requiere empresaId como parámetro obligatorio.
+  Todos los call sites actualizados con e.id. Sin cambios de lógica de negocio.
+
+D3 — DEFAULT '' en migración para columna NOT NULL con tabla vacía.
+  Prisma genera NOT NULL sin DEFAULT en la migración; como la tabla estaba vacía
+  se añadió DEFAULT '' temporal y luego se removió. El DEFAULT solo existe en la
+  DDL de transición, no queda en el schema final.
+
+PENDIENTES DETECTADOS
+
+P1 — onDelete: Restrict en Trabajador→Empresa.
+  Si se intenta eliminar (hard delete) una Empresa con trabajadores, Postgres lanza FK error.
+  El soft-delete de Empresa no toca la FK, así que no hay problema en flujo normal.
+  El motor de planillas usa empresaId en Contrato (que también tiene Restrict implícito).
+  No hay acción en Fase 2.
+
+P2 — agregarHijo no verifica que el trabajador no esté eliminado.
+  Actualmente se puede agregar un hijo a un trabajador soft-deleted (findUnique sin filtro eliminadoEn).
+  Semánticamente es incorrecto. Corrección mínima: verificar eliminadoEn en agregarHijo.
+  Decisión: elevar para que el arquitecto decida si aplica en Fase 2 o en una revisión posterior.
+  Para Fase 2 el path prioritario es la extracción de liquidacion.service.ts.

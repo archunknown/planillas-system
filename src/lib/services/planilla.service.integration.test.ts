@@ -54,10 +54,11 @@ async function crearEmpresa() {
   return e;
 }
 
-async function crearTrabajador() {
+async function crearTrabajador(empresaId: string) {
   const s = ns();
   const t = await prisma.trabajador.create({
     data: {
+      empresaId,
       dni: `T${s}`,
       apellidoPaterno: 'Test',
       apellidoMaterno: 'Test',
@@ -112,7 +113,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     // essalud     = round2(1500×0.09) = 135  (base > RMV, sin piso)
     // neto        = 1500 − 195 = 1305
     const e = await crearEmpresa();
-    const t = await crearTrabajador();
+    const t = await crearTrabajador(e.id);
     await crearContrato(t.id, e.id);
 
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
@@ -137,7 +138,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     // descuentoOnp = round2(800×0.13) = 104
     // neto        = 800 − 104 = 696
     const e = await crearEmpresa();
-    const t = await crearTrabajador();
+    const t = await crearTrabajador(e.id);
     await crearContrato(t.id, e.id, { remuneracionBase: 800 });
 
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
@@ -162,7 +163,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     //   remComp=1613 → gratBase=round2(1613×0.5)=806.50
     //   bonif  =round2(145.17×0.5)=72.59, total=879.09
     const e = await crearEmpresa();
-    const t = await crearTrabajador();
+    const t = await crearTrabajador(e.id);
     await crearContrato(t.id, e.id, {
       regimenLaboral: 'MYPE_PEQUENA',
       sistemaPensionario: 'AFP_HABITAT',
@@ -209,7 +210,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     // essalud            = round2(3064.78×0.09)       = 275.83
     // neto               = round2(3288.38−398.42)     = 2889.96
     const e = await crearEmpresa();
-    const t = await crearTrabajador();
+    const t = await crearTrabajador(e.id);
     const c = await crearContrato(t.id, e.id, {
       regimenLaboral: 'CONSTRUCCION_CIVIL',
       tipoContrato: 'OBRA_DETERMINADA',
@@ -256,7 +257,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     // essalud(6%)     = round2(1895.70×0.06)     = 113.74
     // neto            = round2(1895.70−246.44)   = 1649.26
     const e = await crearEmpresa();
-    const t = await crearTrabajador();
+    const t = await crearTrabajador(e.id);
     await crearContrato(t.id, e.id, {
       regimenLaboral: 'AGRARIO',
       remuneracionBase: 1500,
@@ -280,9 +281,9 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
   it('T6 3 trabajadores (GENERAL + MYPE_PEQUENA + CC) → 3 PlanillaDetalle creados', async () => {
     const e = await crearEmpresa();
 
-    const t1 = await crearTrabajador();
-    const t2 = await crearTrabajador();
-    const t3 = await crearTrabajador();
+    const t1 = await crearTrabajador(e.id);
+    const t2 = await crearTrabajador(e.id);
+    const t3 = await crearTrabajador(e.id);
 
     await crearContrato(t1.id, e.id, { regimenLaboral: 'GENERAL' });
     await crearContrato(t2.id, e.id, { regimenLaboral: 'MYPE_PEQUENA' });
@@ -316,7 +317,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     // Vacaciones truncas: desde 01/01/2026 → 5m+15d → (1500/12)×5+(1500/360)×15 = 687.50
     // descuentos=0, totalNeto = 187.50+1375.00+687.50 = 2250.00
     const e = await crearEmpresa();
-    const t = await crearTrabajador();
+    const t = await crearTrabajador(e.id);
     const c = await crearContrato(t.id, e.id); // GENERAL, rem=1500, ONP, sin hijos, inicio 01/01/2026
 
     const fechaCese = new Date(Date.UTC(2026, 5, 15)); // 15 junio 2026
@@ -337,7 +338,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     // Primera llamada: crea Periodo + PlanillaDetalle
     // Segunda llamada: upsert del Periodo (no-op) + update del PlanillaDetalle existente
     const e = await crearEmpresa();
-    const t = await crearTrabajador();
+    const t = await crearTrabajador(e.id);
     await crearContrato(t.id, e.id);
 
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
@@ -362,7 +363,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     // ONP sobre 1895.70 (no incluye BETA): round2(1895.70×0.13) = 246.44
     // netoPagar = 2234.70 - 246.44 = 1988.26
     const e = await crearEmpresa();
-    const t = await crearTrabajador();
+    const t = await crearTrabajador(e.id);
     await crearContrato(t.id, e.id, { regimenLaboral: 'AGRARIO', remuneracionBase: 1500, recibeBETA: true } as Parameters<typeof crearContrato>[2]);
 
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
@@ -377,7 +378,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
   it('F1-SIN-BETA AGRARIO recibeBETA=false (default) → totalIngresos sin BETA', async () => {
     // Regresión: sin BETA, mismos valores que T5.
     const e = await crearEmpresa();
-    const t = await crearTrabajador();
+    const t = await crearTrabajador(e.id);
     await crearContrato(t.id, e.id, { regimenLaboral: 'AGRARIO', remuneracionBase: 1500 });
 
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
@@ -396,7 +397,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     // cotizan EsSalud sobre remuneración real, sin piso de 1 RMV.
     // essalud = round2(600×0.09) = 54.00; neto = 600 - round2(600×0.13) = 522.00
     const e = await crearEmpresa();
-    const t = await crearTrabajador();
+    const t = await crearTrabajador(e.id);
     await crearContrato(t.id, e.id, { remuneracionBase: 600, esTiempoParcial: true } as Parameters<typeof crearContrato>[2]);
 
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
@@ -412,7 +413,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     // Ley 26790 art. 6 mod. Ley 28791: base mínima = 1 RMV para tiempo completo.
     // essalud = round2(max(600,1130)×0.09) = round2(1130×0.09) = 101.70
     const e = await crearEmpresa();
-    const t = await crearTrabajador();
+    const t = await crearTrabajador(e.id);
     await crearContrato(t.id, e.id, { remuneracionBase: 600 });
 
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
@@ -432,7 +433,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     // totalIngresos = 3794.28 (motor) + 223.25 = 4017.53
     // netoPagar     = 3334.56 (motor) + 223.25 = 3557.81
     const e = await crearEmpresa();
-    const t = await crearTrabajador();
+    const t = await crearTrabajador(e.id);
     await crearContrato(t.id, e.id, {
       regimenLaboral: 'CONSTRUCCION_CIVIL',
       tipoContrato: 'OBRA_DETERMINADA',
@@ -457,7 +458,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
   it('F3-SIN-ESCOLAR CC OPERARIO hijo >24 años → asignacionEscolar=0', async () => {
     // Hijo nacido 2060 → ~39 años en 2099 → fuera del rango 3-24 → asignacionEscolar=0
     const e = await crearEmpresa();
-    const t = await crearTrabajador();
+    const t = await crearTrabajador(e.id);
     await crearContrato(t.id, e.id, {
       regimenLaboral: 'CONSTRUCCION_CIVIL',
       tipoContrato: 'OBRA_DETERMINADA',
@@ -483,7 +484,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     // Regresión: contrato iniciado 01/01/2026, sin PlanillaDetalle en julio/diciembre.
     // D.S. 001-97-TR: sin historial → sextoGratificacion=0 (mismo resultado que T8).
     const e = await crearEmpresa();
-    const t = await crearTrabajador();
+    const t = await crearTrabajador(e.id);
     const c = await crearContrato(t.id, e.id);
 
     const liq = await calcularLiquidacionContrato(c.id, new Date(Date.UTC(2026, 5, 15)));
@@ -499,7 +500,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     // CTS trunca (1m+15d): round2((1750/12)×1 + (1750/360)×15) = 145.83+72.92 = 218.75
     // totalNeto = 218.75 + 1375.00 + 687.50 = 2281.25
     const e = await crearEmpresa();
-    const t = await crearTrabajador();
+    const t = await crearTrabajador(e.id);
     const c = await crearContrato(t.id, e.id);
 
     // Pre-crear período diciembre 2025 con PlanillaDetalle proxy de gratificación
