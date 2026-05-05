@@ -1,0 +1,127 @@
+================================================================================
+REPORTE LOTE 1/4 — empresa CRUD + tests
+Fecha: 2026-05-05
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+1. ARCHIVOS CREADOS / MODIFICADOS
+────────────────────────────────────────────────────────────────────────────────
+
+CREADOS:
+  src/lib/errors/service-error.ts
+  src/lib/validations/empresa.ts
+  src/lib/validations/index.ts
+  src/lib/services/empresa.service.ts
+  src/lib/services/empresa.service.test.ts
+  src/lib/services/empresa.service.integration.test.ts
+  REPORTE_LOTE_1_EMPRESA.txt
+
+MODIFICADOS:
+  prisma/schema.prisma             ← campo Empresa.eliminadoEn DateTime? agregado
+  src/lib/services/index.ts        ← re-export empresa.service
+  package.json / package-lock.json ← zod agregado como dependencia explícita
+  .gitignore                       ← actualizado (ya estaba modificado)
+
+────────────────────────────────────────────────────────────────────────────────
+2. MIGRACIÓN PRISMA
+────────────────────────────────────────────────────────────────────────────────
+
+Nombre: 20260505223428_add_empresa_eliminado_en
+Comando ejecutado: npx prisma migrate dev --name add_empresa_eliminado_en
+
+SQL generado:
+  ALTER TABLE "empresas" ADD COLUMN "eliminadoEn" TIMESTAMP(3);
+
+Estado: aplicada correctamente en planillas_db.
+
+Nota: prisma migrate dev ejecutó prisma generate automáticamente,
+pero el cliente en memoria no se refrescó hasta un segundo
+`npx prisma generate` explícito (detectado durante la primera ejecución de tests).
+En el protocolo de lotes subsiguientes: siempre ejecutar `npx prisma generate`
+tras `migrate dev` antes de correr tests.
+
+────────────────────────────────────────────────────────────────────────────────
+3. RESULTADO npm test POST-LOTE
+────────────────────────────────────────────────────────────────────────────────
+
+Test Files  19 passed (19)   [+2 nuevos respecto al lote anterior]
+      Tests 168 passed (168) [+36 nuevos]
+   Start at  17:40:20
+   Duration  3.63s
+
+Cero regresiones en los 132 tests del motor.
+
+────────────────────────────────────────────────────────────────────────────────
+4. COBERTURA DEL SERVICIO EMPRESA
+────────────────────────────────────────────────────────────────────────────────
+
+empresa.service.test.ts (tests unitarios de validaciones Zod — sin Prisma):
+  CrearEmpresaSchema  (9 tests):
+    ✓ input mínimo válido, default activa=true, campos opcionales
+    ✓ rechaza RUC <11 dígitos, >11 dígitos, con letras
+    ✓ rechaza email inválido, tipoEmpresa inválido, razonSocial vacía
+  ActualizarEmpresaSchema (3 tests):
+    ✓ objeto vacío retorna {}, actualización parcial, rechaza email inválido
+  ListarEmpresasSchema (4 tests):
+    ✓ defaults, incluirEliminados=true, porPagina>100, pagina<1
+
+empresa.service.integration.test.ts (E2E con Postgres real):
+  crear (2):  happy path, DUPLICATE en RUC
+  obtenerPorId (3): happy path, NOT_FOUND id inexistente, NOT_FOUND si eliminada
+  obtenerPorRuc (3): happy path, NOT_FOUND ruc inexistente, NOT_FOUND si eliminada
+  listar (4): solo activos por defecto, incluirEliminados=true, soloActivas=false,
+              total correcto con paginación
+  actualizar (2): happy path parcial, NOT_FOUND
+  eliminar soft (3): marca eliminadoEn + desaparece de listado, NOT_FOUND, INVALID_STATE
+  restaurar (3): limpia eliminadoEn + reaparece, NOT_FOUND, INVALID_STATE
+
+────────────────────────────────────────────────────────────────────────────────
+5. DECISIONES DESVIADAS DEL PLAN ORIGINAL
+────────────────────────────────────────────────────────────────────────────────
+
+D1 — Un solo archivo de tests de integración (no dos archivos separados).
+  El plan indicaba empresa.service.test.ts (unit) + empresa.service.integration.test.ts.
+  El asesor técnico (y la realidad del servicio) indicó que un servicio CRUD puro
+  sin funciones puras no tiene qué mockear. Se interpretó "unit test" como:
+  tests de los schemas Zod en empresa.service.test.ts (código puro, sin Prisma)
+  + tests E2E en empresa.service.integration.test.ts.
+  Resultado: cobertura completa sin infraestructura de mocks artificial.
+
+D2 — ActualizarEmpresaSchema reconstruido sin defaults.
+  Si se heredaba directamente de CrearEmpresaSchema.partial(), el campo `activa`
+  conservaba su default(true), haciendo que ActualizarEmpresaSchema.parse({})
+  retornara { activa: true } y el servicio sobrescribiera el campo sin intención.
+  Se separó EmpresaBaseSchema (sin defaults) del cual deriva ActualizarEmpresaSchema,
+  preservando defaults solo en CrearEmpresaSchema.
+
+D3 — eliminar usa findUnique directo, no obtenerPorId.
+  Si `eliminar` delegaba a `obtenerPorId` (que filtra eliminadoEn: null),
+  la verificación `if (empresa.eliminadoEn !== null)` era inalcanzable —
+  una empresa ya eliminada provocaba NOT_FOUND en vez de INVALID_STATE.
+  Fix: `eliminar` usa `findUnique` sin filtro y verifica ambos estados.
+
+D4 — npx prisma generate debe ejecutarse explícitamente tras migrate dev.
+  `migrate dev` no regeneró el cliente en el proceso de vitest (caché de módulos).
+  Se documentó como protocolo para lotes posteriores.
+
+────────────────────────────────────────────────────────────────────────────────
+6. PENDIENTES DETECTADOS QUE NO ENTRARON EN ESTE LOTE
+────────────────────────────────────────────────────────────────────────────────
+
+P1 — Lote 2 requiere decisión ya tomada: empresaId en Trabajador + @@unique([dni, empresaId]).
+  La migración de lote 2 debe manejar el cambio de constraint @unique(dni) →
+  @@unique([dni, empresaId]) con cuidado si hay datos en la tabla trabajadores.
+
+P2 — Validación de RUC (dígito verificador).
+  El schema solo valida longitud=11 y que sean dígitos. No valida el algoritmo
+  del dígito verificador de SUNAT. Propuesta: agregar función de validación
+  en empresa.ts como refinement de Zod en una fase posterior (no bloquea Fase 2).
+
+P3 — Paginación tipo cursor (keyset) vs offset.
+  El listado usa offset/skip. Para tablas grandes esto degrada. Documentado
+  para considerar en una refactorización futura; no es requisito de Fase 2.
+
+================================================================================
+FIN REPORTE LOTE 1/4
+Esperando aprobación para comenzar lote 2 (trabajador.service.ts).
+================================================================================

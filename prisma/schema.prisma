@@ -75,6 +75,7 @@ model Empresa {
   telefono        String?
   email           String?
   activa          Boolean     @default(true)
+  eliminadoEn     DateTime?
   creadoEn        DateTime    @default(now())
   actualizadoEn   DateTime    @updatedAt
 
