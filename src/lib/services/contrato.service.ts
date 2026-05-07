@@ -5,6 +5,7 @@
 // Listados filtran eliminadoEn=null por defecto.
 // El motor de cálculo (planilla.service) solo lee contratos con activo=true.
 import { Prisma, type Contrato } from '@prisma/client';
+import { ZodError } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { ServiceError } from '@/lib/errors/service-error';
 import {
@@ -143,8 +144,21 @@ export async function listarPorEmpresa(
 }
 
 export async function actualizar(id: string, input: ActualizarContratoInput): Promise<Contrato> {
-  // Inmutables: trabajadorId, empresaId, regimenLaboral, fechaInicio (ver JSDoc)
-  const data = ActualizarContratoSchema.parse(input);
+  // Inmutables: trabajadorId, empresaId, regimenLaboral, fechaInicio.
+  // ActualizarContratoSchema.strict() lanza ZodError si vienen esas claves.
+  let data: ActualizarContratoInput;
+  try {
+    data = ActualizarContratoSchema.parse(input);
+  } catch (err) {
+    if (err instanceof ZodError) {
+      throw new ServiceError(
+        'INVALID_STATE',
+        'Campos inmutables: trabajadorId, empresaId, regimenLaboral, fechaInicio',
+        { issues: err.issues.map((i) => i.message) },
+      );
+    }
+    throw err;
+  }
   await obtenerPorId(id);
   const prismaData: Prisma.ContratoUpdateInput = {
     ...data,
@@ -164,6 +178,13 @@ export async function cerrarContrato(id: string, input: CerrarContratoInput): Pr
   const contrato = await obtenerPorId(id);
   if (!contrato.activo) {
     throw new ServiceError('INVALID_STATE', 'El contrato ya está cerrado.', { id });
+  }
+  if (data.fechaFin < contrato.fechaInicio) {
+    throw new ServiceError(
+      'INVALID_STATE',
+      'fechaFin no puede ser anterior a la fechaInicio del contrato.',
+      { id, fechaFin: data.fechaFin, fechaInicio: contrato.fechaInicio },
+    );
   }
   return prisma.contrato.update({
     where: { id },

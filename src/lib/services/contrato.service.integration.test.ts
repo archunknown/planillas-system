@@ -273,6 +273,18 @@ describe('contrato.service — integración E2E', () => {
         (err: ServiceError) => err instanceof ServiceError && err.code === 'NOT_FOUND',
       );
     });
+
+    it('lanza INVALID_STATE si se envía un campo inmutable (trabajadorId)', async () => {
+      const e = await crearEmpresaBase();
+      const t = await crearTrabajadorBase(e.id);
+      const c = await crearContratoBase(t.id, e.id);
+      await expect(
+        // @ts-expect-error — pasamos intencionalmente un campo inmutable
+        ContratoService.actualizar(c.id, { trabajadorId: 'otro-id' }),
+      ).rejects.toSatisfy(
+        (err: ServiceError) => err instanceof ServiceError && err.code === 'INVALID_STATE',
+      );
+    });
   });
 
   describe('cerrarContrato', () => {
@@ -295,6 +307,21 @@ describe('contrato.service — integración E2E', () => {
       await ContratoService.cerrarContrato(c.id, { fechaFin: new Date(), motivoCese: 'Primera vez' });
       await expect(
         ContratoService.cerrarContrato(c.id, { fechaFin: new Date(), motivoCese: 'Segunda vez' }),
+      ).rejects.toSatisfy(
+        (err: ServiceError) => err instanceof ServiceError && err.code === 'INVALID_STATE',
+      );
+    });
+
+    it('lanza INVALID_STATE si fechaFin es anterior a fechaInicio del contrato', async () => {
+      const e = await crearEmpresaBase();
+      const t = await crearTrabajadorBase(e.id);
+      // contrato con fechaInicio = 2026-01-01
+      const c = await crearContratoBase(t.id, e.id, { fechaInicio: new Date('2026-01-01') });
+      await expect(
+        ContratoService.cerrarContrato(c.id, {
+          fechaFin: new Date('2025-06-01'),
+          motivoCese: 'Fecha incorrecta',
+        }),
       ).rejects.toSatisfy(
         (err: ServiceError) => err instanceof ServiceError && err.code === 'INVALID_STATE',
       );

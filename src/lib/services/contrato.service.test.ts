@@ -107,9 +107,15 @@ describe('ActualizarContratoSchema', () => {
     expect(() => ActualizarContratoSchema.parse({ jornadaSemanal: 50 })).toThrow();
   });
 
-  it('no expone campos inmutables (trabajadorId, empresaId, regimenLaboral, fechaInicio)', () => {
-    // Si se pasan campos inmutables, Zod los ignora (strict no está activo)
-    // Los campos simplemente no están en el schema de actualización
+  it('lanza ZodError si se envía trabajadorId (campo inmutable, .strict())', () => {
+    expect(() => ActualizarContratoSchema.parse({ trabajadorId: 'otro-id' })).toThrow();
+  });
+
+  it('lanza ZodError si se envía regimenLaboral (campo inmutable, .strict())', () => {
+    expect(() => ActualizarContratoSchema.parse({ regimenLaboral: 'AGRARIO' })).toThrow();
+  });
+
+  it('acepta actualización de campo permitido', () => {
     const r = ActualizarContratoSchema.parse({ cargo: 'Nuevo cargo' });
     expect(r).toEqual({ cargo: 'Nuevo cargo' });
   });

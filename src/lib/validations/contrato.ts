@@ -81,7 +81,9 @@ export const CrearContratoSchema = z
     { message: 'recibeBETA solo puede ser true en régimen AGRARIO', path: ['recibeBETA'] },
   );
 
-// Campos inmutables en actualizar: trabajadorId, empresaId, regimenLaboral, fechaInicio
+// Campos inmutables en actualizar: trabajadorId, empresaId, regimenLaboral, fechaInicio.
+// .strict() provoca ZodError si el caller envía alguno de esos campos.
+// El servicio captura el ZodError y lo convierte en ServiceError INVALID_STATE.
 export const ActualizarContratoSchema = z
   .object({
     tipoContrato: TipoContratoEnum.optional(),
@@ -97,7 +99,8 @@ export const ActualizarContratoSchema = z
     recibeBETA: z.boolean().optional(),
     esTiempoParcial: z.boolean().optional(),
     motivoCese: z.string().max(300).optional(),
-  });
+  })
+  .strict();
 
 export const ListarContratosSchema = z.object({
   incluirEliminados: z.boolean().default(false),
