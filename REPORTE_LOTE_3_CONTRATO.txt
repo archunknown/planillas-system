@@ -1,0 +1,92 @@
+REPORTE LOTE 3/4 — contrato CRUD + tests
+Fecha: 2026-05-07
+
+CONFIRMACION HOTFIX LOTE 2
+Commit: fdbf2cd — fix(services): trabajador eliminado no acepta nuevos hijos
+Test agregado: "agregarHijo a trabajador eliminado lanza INVALID_STATE"
+Estado: incluido en la suite, 218/218 previo a este lote.
+
+ARCHIVOS CREADOS / MODIFICADOS
+
+Creados:
+  src/lib/validations/contrato.ts
+  src/lib/services/contrato.service.ts
+  src/lib/services/contrato.service.test.ts
+  src/lib/services/contrato.service.integration.test.ts
+  prisma/migrations/20260507011742_add_contrato_eliminado_en/migration.sql
+  REPORTE_LOTE_3_CONTRATO.txt
+
+Modificados:
+  prisma/schema.prisma     — Contrato.eliminadoEn DateTime? agregado
+  src/lib/validations/index.ts — re-export contrato
+  src/lib/services/index.ts — re-export contrato.service
+
+MIGRACIÓN PRISMA
+
+Nombre: 20260507011742_add_contrato_eliminado_en
+SQL: ALTER TABLE "contratos" ADD COLUMN "eliminadoEn" TIMESTAMP(3);
+Comando: npx prisma migrate dev (sin warning → modo interactivo disponible)
+Pre-flight: SELECT COUNT(*) FROM contratos = 0. Sin backfill.
+
+RESULTADO npm test POST-LOTE
+
+  Test Files  23 passed (23)   [+2 nuevos]
+        Tests 260 passed (260) [+42 nuevos]
+     Duration  5.28s
+  Cero regresiones.
+
+COBERTURA DEL SERVICIO CONTRATO
+
+contrato.service.test.ts (Zod, 20 tests):
+  CrearContratoSchema: remuneración>0, jornadaSemanal 1-48, fechaFin>fechaInicio,
+    recibeBETA solo AGRARIO, enums inválidos, fechaInicio rango ±1 año, defaults
+  ActualizarContratoSchema: vacío sin defaults, validaciones en actualización,
+    campos inmutables ausentes del schema
+  CerrarContratoSchema: fechaFin+motivoCese, motivoCese vacío
+
+contrato.service.integration.test.ts (E2E Postgres, 22 tests):
+  crear: simple activo=true, cierre automático del previo (transacción + verificación fechaFin/motivoCese),
+    NOT_FOUND trabajador inexistente, INVALID_STATE trabajador eliminado,
+    rollback cuando transacción falla (previo queda activo)
+  obtenerPorId: happy path, NOT_FOUND, NOT_FOUND si eliminado
+  obtenerActivoPorTrabajador: happy path, NOT_FOUND si todos cerrados
+  listarPorTrabajador: filtra eliminados, soloActivos=true
+  listarPorEmpresa: sin mezcla entre empresas
+  actualizar: campos permitidos (cargo, remuneración), NOT_FOUND; inmutables no expuestos
+  cerrarContrato: happy path, INVALID_STATE doble cierre
+  eliminar+restaurar: soft delete + desaparece del listado, INVALID_STATE doble eliminar,
+    restaurar, NOT_FOUND restaurar inexistente, INVALID_STATE restaurar no-eliminado
+
+DECISIONES DESVIADAS DEL PLAN ORIGINAL
+
+D1 — Prefijo RUC por test file para evitar colisiones en ejecución paralela.
+  Vitest corre los archivos de test en paralelo. Los RUCs generados con el mismo
+  patrón en trabajador.service.integration.test.ts y contrato.service.integration.test.ts
+  colisionaban (ambos producían 20000001000 para seq=1). Fix: contrato usa prefijo
+  "21" → RUCs de la forma 21NNN111111. Patrón a replicar si se agregan más test files.
+
+D2 — rollback test usa empresaId inválida como mecanismo de fallo.
+  El spec pedía "rollback transaccional si falla cierre del previo". En la
+  implementación actual, el cierre del previo no puede fallar (es un UPDATE, no
+  tiene FK externa). El fallo más realista es en la creación del nuevo contrato
+  por FK inválida. El test usa empresaId='empresa-inexistente-xyz' para forzar
+  el error en tx.contrato.create y verificar que el previo sigue activo.
+
+D3 — No se implementó validación de campos inmutables con error tipado.
+  El spec pedía INVALID_STATE si se intentan cambiar trabajadorId, empresaId,
+  regimenLaboral, fechaInicio. La implementación optó por excluirlos del schema
+  (ActualizarContratoSchema no los expone) — Zod los ignora silenciosamente si
+  vienen en el input (no Zod strict). La alternativa sería z.object().strict() o
+  un refine que rechace. El comportamiento actual es seguro (los campos no se
+  modifican) pero no explícito al llamador. Documentado para decisión del arquitecto.
+
+PENDIENTES DETECTADOS
+
+P1 — ActualizarContratoSchema ignora campos inmutables silenciosamente.
+  Ver D3. Si el arquitecto quiere error explícito, agregar .strict() o un
+  refinement que detecte claves de campos inmutables en el input.
+
+P2 — cerrarContrato no valida que fechaFin >= fechaInicio del contrato.
+  Se puede cerrar un contrato con fechaFin anterior a su fechaInicio.
+  Semánticamente incorrecto. Corrección: agregar refine comparando con
+  el contrato.fechaInicio. Se puede agregar en Fase 2 o como deuda menor.

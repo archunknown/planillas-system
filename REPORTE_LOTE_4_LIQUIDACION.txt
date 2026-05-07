@@ -1,0 +1,140 @@
+════════════════════════════════════════════════════════════════════════════════
+REPORTE LOTE 4/4 — liquidacion.service.ts (Cierre Fase 2)
+Fecha: 2026-05-06
+════════════════════════════════════════════════════════════════════════════════
+
+── HOTFIX LOTE 3 (aplicado antes de lote 4) ────────────────────────────────────
+
+P1 — ActualizarContratoSchema.strict()
+  • Schema ahora usa .strict(): rechaza campos inmutables (trabajadorId, empresaId,
+    regimenLaboral, fechaInicio) en lugar de ignorarlos silenciosamente.
+  • contrato.service.ts: actualizar() captura ZodError y lanza
+    ServiceError('INVALID_STATE', 'Campos inmutables: trabajadorId, empresaId,
+    regimenLaboral, fechaInicio').
+  • Tests: 2 casos en contrato.service.test.ts cubren ZodError por campo inmutable.
+
+P2 — cerrarContrato valida fechaFin >= fechaInicio
+  • contrato.service.ts: cerrarContrato() lanza INVALID_STATE si
+    data.fechaFin < contrato.fechaInicio.
+  • Tests: 1 caso en contrato.service.test.ts cubre este guard.
+
+── PRE-FLIGHT LOTE 4 ────────────────────────────────────────────────────────────
+
+Grep: calcularLiquidacionContrato
+  Definición:    planilla.service.ts:262
+  Callers:       planilla.service.integration.test.ts:4,324,491,526
+  Externos:      0 (ningún archivo fuera del módulo service lo llama)
+  → DECISIÓN: eliminar del planilla.service.ts (no se necesita wrapper @deprecated)
+
+Grep: liquidaciones = 0 registros en producción (conteo previo a migración)
+  → Sin datos que migrar; migración segura.
+
+── DECISIÓN DE UNICIDAD ────────────────────────────────────────────────────────
+
+Opción elegida: C — Eliminar @unique de Liquidacion.contratoId
+  Razón: permitir múltiples liquidaciones por contrato (vigente + histórico anuladas).
+  La unicidad de "liquidación vigente" se gestiona a nivel de servicio:
+    findFirst({ where: { contratoId, anulada: false } }) lanza INVALID_STATE si existe.
+  El patrón `anulada=false` es la fuente de verdad; la DB no impone unicidad.
+
+── MIGRACIÓN ────────────────────────────────────────────────────────────────────
+
+Nombre: 20260507012738_add_liquidacion_anulacion_drop_unique
+Cambios:
+  • DROP INDEX "liquidaciones_contratoId_key"  (eliminado @unique de contratoId)
+  • ALTER TABLE "liquidaciones" ADD COLUMN "anulada" BOOLEAN DEFAULT false NOT NULL
+  • ALTER TABLE "liquidaciones" ADD COLUMN "anuladaEn" TIMESTAMPTZ
+  • ALTER TABLE "liquidaciones" ADD COLUMN "motivoAnulacion" TEXT
+  • prisma/schema.prisma: Contrato.liquidacion → liquidaciones Liquidacion[]
+  • prisma generate ejecutado (Protocol D4)
+
+── ARCHIVOS CREADOS / MODIFICADOS ──────────────────────────────────────────────
+
+CREADOS:
+  src/lib/validations/liquidacion.ts
+    • CalcularLiquidacionSchema (contratoId, fechaCese ≤ +1 año)
+    • AnularLiquidacionSchema (motivoAnulacion 5..300 chars)
+    • ListarLiquidacionesSchema (incluirAnuladas, fechaCeseDesde/Hasta, paginación)
+
+  src/lib/services/liquidacion.service.ts
+    • calcular(input)         — crea nueva Liquidacion, sets contrato.activo=false
+    • obtenerPorId(id)        — NOT_FOUND si inexistente
+    • obtenerPorContrato(id)  — null si no hay vigente; {incluirAnuladas} para historial
+    • listarPorEmpresa(id)    — paginada, filtros fecha cese, excluye anuladas por default
+    • anular(id, input)       — operación terminal; no existe restaurar (auditabilidad)
+
+  src/lib/services/liquidacion.service.test.ts          — 14 tests Zod (unitarios)
+  src/lib/services/liquidacion.service.integration.test.ts — 13 tests E2E
+
+MODIFICADOS:
+  src/lib/services/planilla.service.ts
+    • Eliminado: calcularLiquidacionContrato (función migrada a liquidacion.service)
+    • Eliminado: inicioSemestreCTS, inicioSemestreGratif (solo las usaba esa función)
+    • Eliminado: import Liquidacion (ya no se usa aquí)
+
+  src/lib/services/planilla.service.integration.test.ts
+    • Import actualizado: calcularLiquidacionContrato → calcularLiquidacion desde liquidacion.service
+    • 3 call sites actualizados: (id, date) → ({ contratoId, fechaCese })
+
+  src/lib/validations/index.ts
+    • Agrega: export * from './liquidacion'
+
+  src/lib/services/index.ts
+    • Agrega: export * from './liquidacion.service'
+
+── COBERTURA DE TESTS ───────────────────────────────────────────────────────────
+
+liquidacion.service.test.ts (14 tests, Zod unitarios):
+  CalcularLiquidacionSchema: 5 casos (acepta válido, rechaza vacío, fecha +1año, histórica, string ISO)
+  AnularLiquidacionSchema:   4 casos (5..300 chars, <5, >300, vacío)
+  ListarLiquidacionesSchema: 5 casos (defaults, fechas ISO, porPagina>100, pagina=0, incluirAnuladas)
+
+liquidacion.service.integration.test.ts (13 tests, E2E):
+  L1  Happy path: cálculo correcto, valores numéricos, contrato.activo=false
+  L2  Vigente existente bloquea recalcular (INVALID_STATE)
+  L3  Anular + recalcular = nueva liquidación vigente (id diferente)
+  L4  fechaCese < fechaInicio → INVALID_STATE
+  L5  contratoId inexistente → NOT_FOUND
+  L6  Contrato soft-deleted → INVALID_STATE
+  L7  obtenerPorContrato: vigente visible / anulada oculta / incluirAnuladas=true
+  L8  listarPorEmpresa: paginación + filtro fechaCeseDesde
+  L9  anular: fields anulada, anuladaEn, motivoAnulacion
+  L10 Double anular → INVALID_STATE
+  L11 obtenerPorId happy path
+  L12 obtenerPorId NOT_FOUND
+  L-STATIC: sin export restaurar (auditabilidad garantizada)
+
+planilla.service.integration.test.ts (verificación regresión):
+  T8 — Cese 15/06/2026: ctsTrunca=187.50, totalNeto=2250.00 ✓ (via calcularLiquidacion)
+  Todos los demás tests (T1-T7, F1-F4): sin regresiones ✓
+
+── RESULTADOS FINALES ───────────────────────────────────────────────────────────
+
+  npx vitest run --reporter=dot
+  25 test files | 291 tests | 0 failed | 0 skipped
+
+── ACUMULADO FASE 2 ─────────────────────────────────────────────────────────────
+
+  Lote 1/4 — empresa.service.ts
+    Archivos nuevos: 4 (service, validations, test unitario, test integración)
+    Tests:           unitarios=14, integración=10
+
+  Lote 2/4 — trabajador.service.ts + hijo sub-CRUD
+    Archivos nuevos: 4 + hotfix (agregarHijo guard eliminadoEn)
+    Tests:           unitarios=20, integración=13
+
+  Lote 3/4 — contrato.service.ts
+    Archivos nuevos: 4 + hotfix P1 (.strict) + hotfix P2 (fechaFin guard)
+    Tests:           unitarios=13, integración=12
+
+  Lote 4/4 — liquidacion.service.ts (este lote)
+    Archivos nuevos: 3 (service, test unitario, test integración)
+    Archivos modificados: 4 (planilla.service, planilla.integration.test, validations/index, services/index)
+    Tests:           unitarios=14, integración=13
+
+  TOTAL FASE 2:
+    Servicios implementados: 5 (parametros, empresa, trabajador, contrato, liquidacion)
+    Test files:              18 (entre unitarios e integración nuevos en fase 2)
+    Tests totales (suite):   291 pasando / 0 fallando
+
+════════════════════════════════════════════════════════════════════════════════

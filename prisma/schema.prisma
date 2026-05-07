@@ -75,9 +75,11 @@ model Empresa {
   telefono        String?
   email           String?
   activa          Boolean     @default(true)
+  eliminadoEn     DateTime?
   creadoEn        DateTime    @default(now())
   actualizadoEn   DateTime    @updatedAt
 
+  trabajadores    Trabajador[]
   contratos       Contrato[]
   usuarios        UsuarioEmpresa[]
 
@@ -90,7 +92,8 @@ model Empresa {
 
 model Trabajador {
   id                String    @id @default(cuid())
-  dni               String    @unique
+  empresaId         String
+  dni               String
   apellidoPaterno   String
   apellidoMaterno   String
   nombres           String
@@ -100,22 +103,26 @@ model Trabajador {
   telefono          String?
   email             String?
   estadoCivil       String?
+  eliminadoEn       DateTime?
   creadoEn          DateTime  @default(now())
   actualizadoEn     DateTime  @updatedAt
 
+  empresa           Empresa    @relation(fields: [empresaId], references: [id])
   contratos         Contrato[]
   hijos             Hijo[]
 
+  @@unique([dni, empresaId])
   @@map("trabajadores")
 }
 
 // Hijos del trabajador - para asignación familiar
 model Hijo {
-  id              String    @id @default(cuid())
+  id              String     @id @default(cuid())
   trabajadorId    String
   nombres         String
   fechaNacimiento DateTime
   dni             String?
+  eliminadoEn     DateTime?
   trabajador      Trabajador @relation(fields: [trabajadorId], references: [id])
 
   @@map("hijos")
@@ -184,13 +191,14 @@ model Contrato {
   esTiempoParcial     Boolean            @default(false)
   motivoCese          String?
   activo              Boolean            @default(true)
+  eliminadoEn         DateTime?
   creadoEn            DateTime           @default(now())
   actualizadoEn       DateTime           @updatedAt
 
   trabajador          Trabajador         @relation(fields: [trabajadorId], references: [id])
   empresa             Empresa            @relation(fields: [empresaId], references: [id])
   planillaDetalles    PlanillaDetalle[]
-  liquidacion         Liquidacion?
+  liquidaciones       Liquidacion[]
 
   @@map("contratos")
 }
@@ -295,36 +303,42 @@ model Boleta {
 // LIQUIDACIONES DE BENEFICIOS SOCIALES
 // ============================================
 
+// anulada: operación terminal para auditabilidad — no existe reactivar.
+// contratoId no es @unique: permite crear nueva liquidación tras anular la anterior.
+// La unicidad de "liquidación vigente" se gestiona a nivel de servicio.
 model Liquidacion {
-  id                    String   @id @default(cuid())
-  contratoId            String   @unique // Una liquidación por contrato cesado
+  id                    String    @id @default(cuid())
+  contratoId            String
   fechaCese             DateTime
-  fechaCalculo          DateTime @default(now())
-  remuneracionPendiente Decimal  @default(0) @db.Decimal(10, 2)
+  fechaCalculo          DateTime  @default(now())
+  remuneracionPendiente Decimal   @default(0) @db.Decimal(10, 2)
 
   // CTS
-  ctsTruncaMeses        Int      @default(0)
-  ctsTruncaDias         Int      @default(0)
-  ctsTrunca             Decimal  @db.Decimal(10, 2)
+  ctsTruncaMeses        Int       @default(0)
+  ctsTruncaDias         Int       @default(0)
+  ctsTrunca             Decimal   @db.Decimal(10, 2)
 
   // Vacaciones
-  vacacionesTruncaMeses Int      @default(0)
-  vacacionesTruncaDias  Int      @default(0)
-  vacacionesTruncas     Decimal  @db.Decimal(10, 2)
+  vacacionesTruncaMeses Int       @default(0)
+  vacacionesTruncaDias  Int       @default(0)
+  vacacionesTruncas     Decimal   @db.Decimal(10, 2)
 
   // Gratificación
-  gratificacionTruncaMeses Int   @default(0)
-  gratificacionTruncaDias  Int   @default(0)
-  gratificacionTrunca   Decimal  @db.Decimal(10, 2)
+  gratificacionTruncaMeses Int    @default(0)
+  gratificacionTruncaDias  Int    @default(0)
+  gratificacionTrunca   Decimal   @db.Decimal(10, 2)
 
   // Totales
-  totalBruto            Decimal  @db.Decimal(10, 2)
-  descuentos            Decimal  @default(0) @db.Decimal(10, 2)
-  totalNeto             Decimal  @db.Decimal(10, 2)
+  totalBruto            Decimal   @db.Decimal(10, 2)
+  descuentos            Decimal   @default(0) @db.Decimal(10, 2)
+  totalNeto             Decimal   @db.Decimal(10, 2)
 
-  archivoUrl            String?  // PDF de la liquidación
+  archivoUrl            String?
+  anulada               Boolean   @default(false)
+  anuladaEn             DateTime?
+  motivoAnulacion       String?
 
-  contrato              Contrato @relation(fields: [contratoId], references: [id])
+  contrato              Contrato  @relation(fields: [contratoId], references: [id])
 
   @@map("liquidaciones")
 }

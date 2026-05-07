@@ -1,0 +1,307 @@
+================================================================================
+REPORTE PREVIO FASE 2 — Sistema de Planillas
+Fecha generación: 2026-05-05
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+1. VERIFICACIÓN DE ESTADO GIT
+────────────────────────────────────────────────────────────────────────────────
+
+Rama actual: main
+
+Último commit en main:
+  6eb47bc  fix(service): propagate BETA, esTiempoParcial, asignacion escolar CC, sextoGratificacion
+
+Último commit en feat/calculation-engine-v2:
+  6eb47bc  fix(service): propagate BETA, esTiempoParcial, asignacion escolar CC, sextoGratificacion
+
+→ AMBAS RAMAS APUNTAN AL MISMO COMMIT (6eb47bc).
+  git rev-parse main == git rev-parse feat/calculation-engine-v2
+
+Divergencia:
+  - Commits en feat/calculation-engine-v2 no en main: 0
+  - Commits en main no en feat/calculation-engine-v2: 0
+  - Conclusión: feat/calculation-engine-v2 ya está integrada en main.
+    El merge fue fast-forward (no se generó merge commit, las ramas
+    quedaron al mismo SHA).
+
+git status:
+  - Modificado no trackeado: .gitignore
+  - Sin seguimiento: Continuidad_Proyecto.pdf, PRD_Sistema_Planillas.pdf
+  - Sin cambios staged
+
+Log --oneline -10 (ambas ramas):
+  6eb47bc  fix(service): propagate BETA, esTiempoParcial, asignacion escolar CC, sextoGratificacion
+  d06ff2c  chore: ignore .vscode directory
+  a70c0a2  feat(service): add calcularLiquidacionContrato and T8 integration test
+  ed1c2a7  feat(schema): add recibeBETA, esTiempoParcial to Contrato, complete Liquidacion model
+  4e926c2  test(integration): end-to-end planilla service flow with multiple regimes
+  f712d83  feat(motor): correcciones estructurales para MYPE pequeña, agrario RD prorrateo y BETA, CC asignación familiar/escolar
+  4c1ce39  fix(motor): correct legal formulas per audit (altura 8%, RMV floor, agrario vacations, gratification days, hour value)
+  d8b863c  refactor(motor): extract hardcoded parameters as optional inputs; add RMA support to AFP
+  2a87859  feat(seed): add RMA, CAPECO jornales, and audit legal references to parameters
+  a201313  fix: Prisma 7 adapter setup + shared client + seed working
+
+Branches remotas disponibles:
+  remotes/origin/feat/calculation-engine      (rama más antigua, ya superada)
+  remotes/origin/feat/calculation-engine-v2
+  remotes/origin/main
+
+
+────────────────────────────────────────────────────────────────────────────────
+2. VERIFICACIÓN DEL MOTOR
+────────────────────────────────────────────────────────────────────────────────
+
+Comando ejecutado: npm test
+Resultado:
+  Test Files  17 passed (17)
+        Tests  132 passed (132)
+     Start at  17:11:13
+     Duration  3.32s
+
+Todos los tests verdes. Cero fallos.
+
+--- Verificación de las 4 deudas técnicas en planilla.service.ts ---
+
+FIX 1 — recibeBETA (línea 157):
+  recibeBETA: contrato.recibeBETA,
+  → Propagado a la estructura `datos` que se pasa al motor.
+  → Ley 31110 art. 8 inc. 2 documentada en comentario.
+
+FIX 2 — esTiempoParcial (línea 159):
+  esTiempoParcial: contrato.esTiempoParcial,
+  → Propagado a la estructura `datos`.
+  → Ley 26790 / D.S. 001-96-TR documentada en comentario.
+
+FIX 3 — asignacionEscolar CC (líneas 166, 212–214, 230):
+  let asignacionEscolarMonto = 0;                      (línea 166)
+  asignacionEscolarMonto = ae.montoTotal;              (línea 212 — rama CONSTRUCCION_CIVIL)
+  resultado.ingresos.totalIngresos += asignacionEscolarMonto;  (línea 213)
+  resultado.netoPagar += asignacionEscolarMonto;       (línea 214)
+  asignacionEscolar: toDecimal(asignacionEscolarMonto) (línea 230 — persistido en PlanillaDetalle)
+  → Calculado y guardado en campo asignacionEscolar del detalle.
+  → Convenio CAPECO-FTCCP 2026 (R.M. 197-2025-TR) documentada.
+
+FIX 4 — sextoGratificacion (líneas 286–297):
+  const sextoGratificacion = gratifDetalles.length > 0
+    ? round2(gratifDetalles.reduce(...) / 6) : 0;     (línea 286–288)
+  promedioHorasExtras6Meses: 0, sextoGratificacion,   (línea 297 — pasado a calcularCts)
+  → Consulta a PlanillaDetalle julio/dic como proxy de gratificaciones pagadas.
+  → D.S. 001-97-TR art. 19 documentado.
+
+CONCLUSIÓN: Las 4 deudas técnicas están correctamente propagadas y cubiertas
+por tests de integración (tests F1-BETA, F2-PARCIAL, F3-CON-ESCOLAR, F4-CON-HISTORIAL).
+
+
+────────────────────────────────────────────────────────────────────────────────
+3. INVENTARIO DEL SCHEMA PRISMA VIGENTE
+────────────────────────────────────────────────────────────────────────────────
+
+Migraciones aplicadas:
+  1. 20260411230500_init
+  2. 20260501183916_add_beta_tiempoparcial_liquidacion
+  3. 20260503234742_add_asignacion_escolar_cc
+
+--- Campos actuales por modelo ---
+
+model Empresa {
+  id              String      @id @default(cuid())
+  ruc             String      @unique
+  razonSocial     String
+  nombreComercial String?
+  tipoEmpresa     TipoEmpresa
+  direccion       String
+  distrito        String
+  provincia       String
+  departamento    String
+  telefono        String?
+  email           String?
+  activa          Boolean     @default(true)
+  creadoEn        DateTime    @default(now())
+  actualizadoEn   DateTime    @updatedAt
+  contratos       Contrato[]
+  usuarios        UsuarioEmpresa[]
+}
+FALTAN para Fase 2:
+  - eliminadoEn   DateTime?    ← soft delete obligatorio por spec
+
+model Trabajador {
+  id                String    @id @default(cuid())
+  dni               String    @unique          ← ALERTA: ver riesgo #1
+  apellidoPaterno   String
+  apellidoMaterno   String
+  nombres           String
+  fechaNacimiento   DateTime
+  sexo              String
+  direccion         String?
+  telefono          String?
+  email             String?
+  estadoCivil       String?
+  creadoEn          DateTime  @default(now())
+  actualizadoEn     DateTime  @updatedAt
+  contratos         Contrato[]
+  hijos             Hijo[]
+}
+FALTAN para Fase 2:
+  - empresaId     String       ← FK a Empresa (Trabajador debe pertenecer a una empresa)
+  - eliminadoEn   DateTime?    ← soft delete
+  - La constraint @unique(dni) debe cambiar a @@unique([dni, empresaId])
+
+model Contrato {
+  id                  String             @id @default(cuid())
+  trabajadorId        String
+  empresaId           String
+  regimenLaboral      RegimenLaboral
+  tipoContrato        TipoContrato
+  fechaInicio         DateTime
+  fechaFin            DateTime?
+  cargo               String
+  remuneracionBase    Decimal
+  frecuenciaPago      FrecuenciaPago
+  sistemaPensionario  SistemaPensionario
+  tieneAsignacionFamiliar Boolean
+  jornadaSemanal      Int
+  categoriaCC         CategoriaCC
+  zonaBonificacion    String?
+  recibeBETA          Boolean
+  esTiempoParcial     Boolean
+  motivoCese          String?
+  activo              Boolean            @default(true)
+  creadoEn            DateTime
+  actualizadoEn       DateTime
+  ...relaciones...
+}
+FALTAN para Fase 2:
+  - eliminadoEn   DateTime?    ← soft delete
+  NOTA: activo=false y eliminadoEn!=null son semánticas distintas:
+    activo=false → contrato cerrado/reemplazado por uno nuevo
+    eliminadoEn!=null → contrato borrado lógicamente (error admin, datos prueba)
+
+model Liquidacion {
+  id, contratoId (unique), fechaCese, fechaCalculo,
+  remuneracionPendiente,
+  ctsTruncaMeses, ctsTruncaDias, ctsTrunca,
+  vacacionesTruncaMeses, vacacionesTruncaDias, vacacionesTruncas,
+  gratificacionTruncaMeses, gratificacionTruncaDias, gratificacionTrunca,
+  totalBruto, descuentos, totalNeto, archivoUrl
+}
+FALTAN para Fase 2:
+  - anulada        Boolean   @default(false)    ← para soft-anulación (spec: anular)
+  - anuladaEn      DateTime?
+  - motivoAnulacion String?
+
+model PlanillaDetalle {
+  id, periodoId, contratoId,
+  diasTrabajados, diasNoTrabajados,
+  horasExtras25/35/100, minutosAtraso, faltas, feriados,
+  remuneracionBasica, horasExtrasTotal, asignacionFamiliar,
+  bonificacionCC, movilidadCC, bonificacionAltura, asignacionEscolar,
+  otrosIngresos, totalIngresos,
+  descuentoOnp, descuentoAfp, comisionAfp, primaSeguroAfp,
+  retencionQuinta, otrosDescuentos, totalDescuentos,
+  essalud, sctr, totalAportesEmpleador,
+  netoPagar, creadoEn, actualizadoEn
+}
+Sin modificaciones necesarias para Fase 2.
+
+model Hijo {
+  id, trabajadorId, nombres, fechaNacimiento, dni?
+}
+FALTAN para Fase 2:
+  - eliminadoEn   DateTime?    ← si el sub-CRUD de Hijo incluye soft-delete
+  DECISIÓN REQUERIDA: ¿Hijo también tiene soft-delete o se hace hard-delete?
+  La spec dice sub-CRUD transaccional pero no menciona explícitamente soft-delete
+  para Hijo. Recomiendo soft-delete por consistencia, pero requiero confirmación.
+
+
+────────────────────────────────────────────────────────────────────────────────
+4. DECISIONES DE RAMA PROPUESTAS
+────────────────────────────────────────────────────────────────────────────────
+
+Situación: feat/calculation-engine-v2 === main (mismo SHA 6eb47bc).
+No hay nada que mergear.
+
+RECOMENDACIÓN: Crear una rama nueva desde main para toda la Fase 2.
+
+  git checkout -b feat/phase2-services
+
+Justificación:
+  a) El motor está en main, limpio, sin divergencia. Partir desde ahí es lo más
+     simple y evita confusión con la rama de motor (que ya cumplió su propósito).
+  b) Trabajar en rama aislada protege main hasta que apruebe cada lote.
+  c) Una sola rama para los 4 lotes es coherente con el protocolo: los lotes son
+     secuenciales y dependientes entre sí (los servicios de orden superior usan
+     los anteriores). Ramas separadas por lote solo agregarían overhead de merges.
+
+ALTERNATIVA DESCARTADA: Rama hija desde feat/calculation-engine-v2.
+  No aplica porque es el mismo punto de partida. Usar ese nombre de rama para
+  trabajo nuevo generaría confusión semántica.
+
+
+────────────────────────────────────────────────────────────────────────────────
+5. RIESGOS DETECTADOS
+────────────────────────────────────────────────────────────────────────────────
+
+RIESGO 1 — CRÍTICO: Constraint dni en Trabajador es globalmente única.
+  Estado actual: Trabajador.dni tiene @unique global en el schema.
+  Spec Fase 2: "Trabajador.dni único por empresaId (no global)".
+  Problema: Trabajador no tiene campo empresaId. La relación actual es
+    Trabajador → Contrato → Empresa (indirecta). Para unicidad per-empresa
+    hay dos opciones:
+    A) Agregar empresaId directamente a Trabajador y cambiar a @@unique([dni, empresaId]).
+       Implica que un trabajador pertenece "primariamente" a una empresa.
+       Problema: si el mismo trabajador real tiene contratos en dos empresas del
+       estudio, son dos registros Trabajador distintos. Esto es el comportamiento
+       buscado según la spec ("un mismo DNI puede trabajar en distintas empresas").
+    B) Mantener Trabajador sin empresaId y gestionar la unicidad a nivel de
+       servicio (check manual antes de crear). Sin constraint de DB.
+       Riesgo: condiciones de carrera, menos robusto.
+    RECOMIENDO opción A. Requiero tu confirmación antes de codear el lote 2
+    (trabajador.service.ts), ya que implica migración con impacto en datos existentes.
+
+RIESGO 2 — MEDIO: Ambigüedad semántica activo vs. eliminadoEn en Contrato.
+  Contrato ya tiene activo: Boolean (usada por el motor para lógica de cierre).
+  Fase 2 agrega eliminadoEn: DateTime? (soft delete admin).
+  Son dos estados ortogonales:
+    - activo=false, eliminadoEn=null  → contrato cerrado válidamente (con sucesor)
+    - activo=true,  eliminadoEn!=null → contrato borrado antes de activarse
+    - activo=false, eliminadoEn!=null → contrato cerrado Y luego borrado
+  Las queries de listado deben filtrar eliminadoEn=null SIEMPRE.
+  Las queries del motor ya filtran por activo. No hay conflicto, pero hay que
+  documentarlo explícitamente en el servicio para que futuros mantenedores no
+  mezclen las semánticas.
+
+RIESGO 3 — MEDIO: calcularLiquidacionContrato en planilla.service.ts tiene
+  dependencia directa de datos de Contrato via Prisma. Al extraerla a
+  liquidacion.service.ts, los tests de integración T8 en
+  planilla.service.integration.test.ts seguirán pasando (el test llama a la
+  función exportada, no importa desde dónde). Pero hay que redirigir el import.
+  No es un riesgo de lógica, sí un riesgo de refactor si no se hace atómicamente.
+  Plan: en el lote 4 (liquidacion.service.ts), mover la función, actualizar el
+  export en planilla.service.ts para re-exportarla desde liquidacion.service.ts
+  (o eliminar el re-export si no hay llamadores externos activos). Decidir en ese
+  lote.
+
+RIESGO 4 — BAJO: Modelo Boleta y pdf/boleta.ts ya existen en el repo.
+  La spec excluye boleta.service.ts de Fase 2, pero el modelo y la función de
+  PDF ya están escritos. No hay conflicto, solo tener cuidado de no tocar esos
+  archivos en los lotes de Fase 2. Se documenta para evitar tentación de
+  "completar" mientras se trabaja en liquidacion.service.ts (que tiene lógica
+  similar de archivoUrl).
+
+RIESGO 5 — BAJO: Hijo sin empresaId ni validación de edad.
+  El modelo Hijo almacena fechaNacimiento, y el motor usa esta fecha para
+  calcular asignación familiar (hijos menores de 18) y asignación escolar CC
+  (hijos 3–24 años). El CRUD de Hijo en trabajador.service.ts debe preservar
+  fechaNacimiento con precisión. Si se crea un Hijo sin esta fecha, el motor
+  fallará silenciosamente (retornará 0 de asignación sin error). Zod schema
+  de validación debe requerir fechaNacimiento como obligatorio.
+
+RIESGO 6 — INFORMATIVO: No existe src/lib/validations/ todavía.
+  Se debe crear en el lote 1 (empresa.service.ts). Confirmar si quieres un
+  barrel index.ts en esa carpeta desde el inicio o solo archivos individuales.
+
+================================================================================
+FIN DEL REPORTE PREVIO FASE 2
+Esperando aprobación para comenzar lote 1 (empresa.service.ts).
+================================================================================
