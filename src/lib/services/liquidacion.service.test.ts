@@ -5,19 +5,25 @@ import {
   ListarLiquidacionesSchema,
 } from '@/lib/validations/liquidacion';
 
+const BASE_CALCULAR = { contratoId: 'cid-test', fechaCese: new Date(), motivoCese: 'Renuncia voluntaria' };
+
 describe('CalcularLiquidacionSchema', () => {
-  it('acepta contratoId y fechaCese válidos', () => {
-    const r = CalcularLiquidacionSchema.parse({
-      contratoId: 'cid-test',
-      fechaCese: new Date(),
-    });
+  it('acepta contratoId, fechaCese y motivoCese válidos', () => {
+    const r = CalcularLiquidacionSchema.parse(BASE_CALCULAR);
     expect(r.contratoId).toBe('cid-test');
     expect(r.fechaCese).toBeInstanceOf(Date);
+    expect(r.motivoCese).toBe('Renuncia voluntaria');
   });
 
   it('rechaza contratoId vacío', () => {
     expect(() =>
-      CalcularLiquidacionSchema.parse({ contratoId: '', fechaCese: new Date() }),
+      CalcularLiquidacionSchema.parse({ ...BASE_CALCULAR, contratoId: '' }),
+    ).toThrow();
+  });
+
+  it('rechaza motivoCese vacío', () => {
+    expect(() =>
+      CalcularLiquidacionSchema.parse({ ...BASE_CALCULAR, motivoCese: '' }),
     ).toThrow();
   });
 
@@ -25,22 +31,19 @@ describe('CalcularLiquidacionSchema', () => {
     const masDeUnAnio = new Date();
     masDeUnAnio.setFullYear(masDeUnAnio.getFullYear() + 2);
     expect(() =>
-      CalcularLiquidacionSchema.parse({ contratoId: 'cid', fechaCese: masDeUnAnio }),
+      CalcularLiquidacionSchema.parse({ ...BASE_CALCULAR, fechaCese: masDeUnAnio }),
     ).toThrow();
   });
 
   it('acepta fechaCese en el pasado (fecha histórica)', () => {
     const hace5Anios = new Date();
     hace5Anios.setFullYear(hace5Anios.getFullYear() - 5);
-    const r = CalcularLiquidacionSchema.parse({ contratoId: 'cid', fechaCese: hace5Anios });
+    const r = CalcularLiquidacionSchema.parse({ ...BASE_CALCULAR, fechaCese: hace5Anios });
     expect(r.fechaCese).toBeInstanceOf(Date);
   });
 
   it('coerce: acepta fechaCese como string ISO', () => {
-    const r = CalcularLiquidacionSchema.parse({
-      contratoId: 'cid',
-      fechaCese: '2026-01-15',
-    });
+    const r = CalcularLiquidacionSchema.parse({ ...BASE_CALCULAR, fechaCese: '2026-01-15' });
     expect(r.fechaCese).toBeInstanceOf(Date);
   });
 });

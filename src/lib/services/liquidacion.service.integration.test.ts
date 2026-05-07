@@ -89,13 +89,14 @@ async function crearContrato(
 }
 
 const FECHA_CESE = new Date(Date.UTC(2026, 5, 15)); // 15 jun 2026
+const MOTIVO_CESE = 'Renuncia voluntaria del trabajador.';
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('liquidacion.service — integración E2E', () => {
 
-  // L1: Happy path — cálculo correcto y contrato inactivado
-  it('L1 calcular: ctsTrunca=187.50, totalNeto=2250.00, contrato.activo=false', async () => {
+  // L1: Happy path — cálculo correcto, contrato inactivado con fechaFin y motivoCese
+  it('L1 calcular: ctsTrunca=187.50, totalNeto=2250.00, contrato.activo=false + fechaFin + motivoCese', async () => {
     // Mirror de T8 en planilla.service.integration.test.ts.
     // CTS: May1→Jun15 = 1m+15d → (1500/12)×1+(1500/360)×15 = 125+62.50=187.50
     // Gratif trunca: ene-jun → 5m+15d → 1375.00
@@ -105,7 +106,7 @@ describe('liquidacion.service — integración E2E', () => {
     const t = await crearTrabajador(e.id);
     const c = await crearContrato(t.id, e.id);
 
-    const liq = await calcular({ contratoId: c.id, fechaCese: FECHA_CESE });
+    const liq = await calcular({ contratoId: c.id, fechaCese: FECHA_CESE, motivoCese: MOTIVO_CESE });
 
     expect(liq.ctsTrunca.toNumber()).toBeCloseTo(187.50, 2);
     expect(liq.gratificacionTrunca.toNumber()).toBeCloseTo(1375.00, 2);
@@ -115,6 +116,8 @@ describe('liquidacion.service — integración E2E', () => {
 
     const contratoActualizado = await prisma.contrato.findUniqueOrThrow({ where: { id: c.id } });
     expect(contratoActualizado.activo).toBe(false);
+    expect(contratoActualizado.fechaFin?.toISOString()).toBe(FECHA_CESE.toISOString());
+    expect(contratoActualizado.motivoCese).toBe(MOTIVO_CESE);
   });
 
   // L2: Vigente bloquea recalcular
@@ -123,30 +126,41 @@ describe('liquidacion.service — integración E2E', () => {
     const t = await crearTrabajador(e.id);
     const c = await crearContrato(t.id, e.id);
 
-    await calcular({ contratoId: c.id, fechaCese: FECHA_CESE });
+    await calcular({ contratoId: c.id, fechaCese: FECHA_CESE, motivoCese: MOTIVO_CESE });
 
-    await expect(calcular({ contratoId: c.id, fechaCese: FECHA_CESE })).rejects.toSatisfy(
+    await expect(
+      calcular({ contratoId: c.id, fechaCese: FECHA_CESE, motivoCese: MOTIVO_CESE }),
+    ).rejects.toSatisfy(
       (err: unknown) => err instanceof ServiceError && err.code === 'INVALID_STATE',
     );
   });
 
-  // L3: Recalcular tras anular
-  it('L3 anular + calcular → nueva liquidación vigente creada', async () => {
+  // L3: Anular reactiva contrato; recalcular con nueva fecha crea nueva liquidación
+  it('L3 anular revierte contrato (activo=true, fechaFin=null); recalcular crea nueva liq', async () => {
     const e = await crearEmpresa();
     const t = await crearTrabajador(e.id);
     const c = await crearContrato(t.id, e.id);
 
-    const liq1 = await calcular({ contratoId: c.id, fechaCese: FECHA_CESE });
+    const liq1 = await calcular({ contratoId: c.id, fechaCese: FECHA_CESE, motivoCese: MOTIVO_CESE });
+
+    // anular() debe revertir el contrato automáticamente (H2)
     await anular(liq1.id, { motivoAnulacion: 'Corrección de fecha de cese requerida.' });
 
-    // Reactivar manualmente el contrato para poder recalcular
-    await prisma.contrato.update({ where: { id: c.id }, data: { activo: true } });
+    const contratoTrasAnulacion = await prisma.contrato.findUniqueOrThrow({ where: { id: c.id } });
+    expect(contratoTrasAnulacion.activo).toBe(true);
+    expect(contratoTrasAnulacion.fechaFin).toBeNull();
+    expect(contratoTrasAnulacion.motivoCese).toBeNull();
 
-    const liq2 = await calcular({ contratoId: c.id, fechaCese: FECHA_CESE });
+    // Recalcular con nueva fecha — no requiere intervención manual
+    const nuevaFecha = new Date(Date.UTC(2026, 6, 31)); // 31 jul 2026
+    const liq2 = await calcular({ contratoId: c.id, fechaCese: nuevaFecha, motivoCese: 'Fecha corregida.' });
 
     expect(liq2.id).not.toBe(liq1.id);
     expect(liq2.anulada).toBe(false);
-    expect(liq2.totalNeto.toNumber()).toBeCloseTo(2250.00, 2);
+
+    const contratoTrasRecalculo = await prisma.contrato.findUniqueOrThrow({ where: { id: c.id } });
+    expect(contratoTrasRecalculo.activo).toBe(false);
+    expect(contratoTrasRecalculo.fechaFin?.toISOString()).toBe(nuevaFecha.toISOString());
   });
 
   // L4: fechaCese anterior a fechaInicio
@@ -156,14 +170,18 @@ describe('liquidacion.service — integración E2E', () => {
     const c = await crearContrato(t.id, e.id); // fechaInicio = 2026-01-01
 
     const fechaAnterior = new Date(Date.UTC(2025, 11, 31)); // 31 dic 2025
-    await expect(calcular({ contratoId: c.id, fechaCese: fechaAnterior })).rejects.toSatisfy(
+    await expect(
+      calcular({ contratoId: c.id, fechaCese: fechaAnterior, motivoCese: MOTIVO_CESE }),
+    ).rejects.toSatisfy(
       (err: unknown) => err instanceof ServiceError && err.code === 'INVALID_STATE',
     );
   });
 
   // L5: Contrato inexistente → NOT_FOUND
   it('L5 calcular con contratoId inexistente → NOT_FOUND', async () => {
-    await expect(calcular({ contratoId: 'no-existe', fechaCese: FECHA_CESE })).rejects.toSatisfy(
+    await expect(
+      calcular({ contratoId: 'no-existe', fechaCese: FECHA_CESE, motivoCese: MOTIVO_CESE }),
+    ).rejects.toSatisfy(
       (err: unknown) => err instanceof ServiceError && err.code === 'NOT_FOUND',
     );
   });
@@ -175,7 +193,9 @@ describe('liquidacion.service — integración E2E', () => {
     const c = await crearContrato(t.id, e.id);
     await prisma.contrato.update({ where: { id: c.id }, data: { eliminadoEn: new Date() } });
 
-    await expect(calcular({ contratoId: c.id, fechaCese: FECHA_CESE })).rejects.toSatisfy(
+    await expect(
+      calcular({ contratoId: c.id, fechaCese: FECHA_CESE, motivoCese: MOTIVO_CESE }),
+    ).rejects.toSatisfy(
       (err: unknown) => err instanceof ServiceError && err.code === 'INVALID_STATE',
     );
   });
@@ -186,7 +206,7 @@ describe('liquidacion.service — integración E2E', () => {
     const t = await crearTrabajador(e.id);
     const c = await crearContrato(t.id, e.id);
 
-    const liq = await calcular({ contratoId: c.id, fechaCese: FECHA_CESE });
+    const liq = await calcular({ contratoId: c.id, fechaCese: FECHA_CESE, motivoCese: MOTIVO_CESE });
 
     // Vigente visible
     const vigente = await obtenerPorContrato(c.id);
@@ -211,11 +231,11 @@ describe('liquidacion.service — integración E2E', () => {
     // Crear dos contratos con distintas fechas de cese
     const t1 = await crearTrabajador(e.id);
     const c1 = await crearContrato(t1.id, e.id);
-    await calcular({ contratoId: c1.id, fechaCese: new Date(Date.UTC(2026, 2, 31)) }); // 31 mar
+    await calcular({ contratoId: c1.id, fechaCese: new Date(Date.UTC(2026, 2, 31)), motivoCese: MOTIVO_CESE });
 
     const t2 = await crearTrabajador(e.id);
     const c2 = await crearContrato(t2.id, e.id);
-    await calcular({ contratoId: c2.id, fechaCese: new Date(Date.UTC(2026, 5, 30)) }); // 30 jun
+    await calcular({ contratoId: c2.id, fechaCese: new Date(Date.UTC(2026, 5, 30)), motivoCese: MOTIVO_CESE });
 
     // Sin filtro → ambas
     const { datos: todas, total } = await listarPorEmpresa(e.id);
@@ -230,18 +250,23 @@ describe('liquidacion.service — integración E2E', () => {
     expect(filtradas[0].contratoId).toBe(c2.id);
   });
 
-  // L9: anular happy path
-  it('L9 anular: sets anulada=true, anuladaEn, motivoAnulacion', async () => {
+  // L9: anular happy path — liquidación anulada + contrato reactivado (H2)
+  it('L9 anular: liquidacion.anulada=true; contrato.activo=true, fechaFin=null, motivoCese=null', async () => {
     const e = await crearEmpresa();
     const t = await crearTrabajador(e.id);
     const c = await crearContrato(t.id, e.id);
 
-    const liq = await calcular({ contratoId: c.id, fechaCese: FECHA_CESE });
+    const liq = await calcular({ contratoId: c.id, fechaCese: FECHA_CESE, motivoCese: MOTIVO_CESE });
     const anulada = await anular(liq.id, { motivoAnulacion: 'Motivo válido de anulación.' });
 
     expect(anulada.anulada).toBe(true);
     expect(anulada.anuladaEn).toBeInstanceOf(Date);
     expect(anulada.motivoAnulacion).toBe('Motivo válido de anulación.');
+
+    const contratoTrasAnulacion = await prisma.contrato.findUniqueOrThrow({ where: { id: c.id } });
+    expect(contratoTrasAnulacion.activo).toBe(true);
+    expect(contratoTrasAnulacion.fechaFin).toBeNull();
+    expect(contratoTrasAnulacion.motivoCese).toBeNull();
   });
 
   // L10: Double anular → INVALID_STATE
@@ -250,7 +275,7 @@ describe('liquidacion.service — integración E2E', () => {
     const t = await crearTrabajador(e.id);
     const c = await crearContrato(t.id, e.id);
 
-    const liq = await calcular({ contratoId: c.id, fechaCese: FECHA_CESE });
+    const liq = await calcular({ contratoId: c.id, fechaCese: FECHA_CESE, motivoCese: MOTIVO_CESE });
     await anular(liq.id, { motivoAnulacion: 'Primera anulación, auditoría interna.' });
 
     await expect(
@@ -265,7 +290,7 @@ describe('liquidacion.service — integración E2E', () => {
     const e = await crearEmpresa();
     const t = await crearTrabajador(e.id);
     const c = await crearContrato(t.id, e.id);
-    const liq = await calcular({ contratoId: c.id, fechaCese: FECHA_CESE });
+    const liq = await calcular({ contratoId: c.id, fechaCese: FECHA_CESE, motivoCese: MOTIVO_CESE });
 
     const found = await obtenerPorId(liq.id);
     expect(found.id).toBe(liq.id);

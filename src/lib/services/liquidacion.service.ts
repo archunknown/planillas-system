@@ -41,7 +41,7 @@ function inicioSemestreGratif(d: Date): Date {
 // ── calcular ─────────────────────────────────────────────────────────────────
 
 export async function calcular(input: CalcularLiquidacionInput): Promise<Liquidacion> {
-  const { contratoId, fechaCese } = CalcularLiquidacionSchema.parse(input);
+  const { contratoId, fechaCese, motivoCese } = CalcularLiquidacionSchema.parse(input);
 
   const contrato = await prisma.contrato.findUnique({
     where: { id: contratoId },
@@ -128,18 +128,23 @@ export async function calcular(input: CalcularLiquidacionInput): Promise<Liquida
     descuentos: 0,
   });
 
-  const result = await prisma.liquidacion.create({
-    data: {
-      contratoId, fechaCese,
-      ctsTruncaMeses: ctsMeses, ctsTruncaDias: ctsDias, ctsTrunca: toDecimal(ctsR.total),
-      vacacionesTruncaMeses: vacMeses, vacacionesTruncaDias: vacDias, vacacionesTruncas: toDecimal(vacR.total),
-      gratificacionTruncaMeses: gratMeses, gratificacionTruncaDias: gratDias,
-      gratificacionTrunca: toDecimal(gratR.gratificacionBase),
-      totalBruto: toDecimal(liq.totalBruto), descuentos: toDecimal(0), totalNeto: toDecimal(liq.totalNeto),
-    },
+  const result = await prisma.$transaction(async (tx) => {
+    const record = await tx.liquidacion.create({
+      data: {
+        contratoId, fechaCese,
+        ctsTruncaMeses: ctsMeses, ctsTruncaDias: ctsDias, ctsTrunca: toDecimal(ctsR.total),
+        vacacionesTruncaMeses: vacMeses, vacacionesTruncaDias: vacDias, vacacionesTruncas: toDecimal(vacR.total),
+        gratificacionTruncaMeses: gratMeses, gratificacionTruncaDias: gratDias,
+        gratificacionTrunca: toDecimal(gratR.gratificacionBase),
+        totalBruto: toDecimal(liq.totalBruto), descuentos: toDecimal(0), totalNeto: toDecimal(liq.totalNeto),
+      },
+    });
+    await tx.contrato.update({
+      where: { id: contratoId },
+      data: { activo: false, fechaFin: fechaCese, motivoCese },
+    });
+    return record;
   });
-
-  await prisma.contrato.update({ where: { id: contratoId }, data: { activo: false } });
 
   return result;
 }
@@ -206,8 +211,15 @@ export async function anular(id: string, input: AnularLiquidacionInput): Promise
   if (liq.anulada) {
     throw new ServiceError('INVALID_STATE', 'La liquidación ya está anulada.', { id });
   }
-  return prisma.liquidacion.update({
-    where: { id },
-    data: { anulada: true, anuladaEn: new Date(), motivoAnulacion },
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.liquidacion.update({
+      where: { id },
+      data: { anulada: true, anuladaEn: new Date(), motivoAnulacion },
+    });
+    await tx.contrato.update({
+      where: { id: liq.contratoId },
+      data: { activo: true, fechaFin: null, motivoCese: null },
+    });
+    return updated;
   });
 }

@@ -10,6 +10,7 @@ export const CalcularLiquidacionSchema = z.object({
     },
     { message: 'fechaCese no puede ser más de 1 año en el futuro' },
   ),
+  motivoCese: z.string().min(1),
 });
 
 export const AnularLiquidacionSchema = z.object({
