@@ -152,6 +152,9 @@ export async function agregarHijo(trabajadorId: string, input: CrearHijoInput): 
   const data = CrearHijoSchema.parse(input);
   const t = await prisma.trabajador.findUnique({ where: { id: trabajadorId } });
   if (!t) throw new ServiceError('NOT_FOUND', `Trabajador no encontrado: ${trabajadorId}.`, { trabajadorId });
+  if (t.eliminadoEn !== null) {
+    throw new ServiceError('INVALID_STATE', 'No se pueden agregar hijos a un trabajador eliminado.', { trabajadorId });
+  }
   return prisma.hijo.create({ data: { ...data, trabajadorId } });
 }
 

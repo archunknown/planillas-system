@@ -378,6 +378,20 @@ describe('trabajador.service — integración E2E', () => {
       expect(soloActivos.map((h) => h.id)).not.toContain(h2.id);
     });
 
+    it('agregarHijo a trabajador eliminado lanza INVALID_STATE', async () => {
+      const e = await crearEmpresaBase();
+      const t = await crearTrabajadorBase(e.id);
+      await TrabajadorService.eliminar(t.id);
+      await expect(
+        TrabajadorService.agregarHijo(t.id, {
+          nombres: 'No debe crearse',
+          fechaNacimiento: new Date('2012-01-01'),
+        }),
+      ).rejects.toSatisfy(
+        (err: ServiceError) => err instanceof ServiceError && err.code === 'INVALID_STATE',
+      );
+    });
+
     it('hijos de trabajador eliminado quedan con FK pero ocultos por filtro', async () => {
       const e = await crearEmpresaBase();
       const t = await crearTrabajadorBase(e.id);
