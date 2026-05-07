@@ -6,6 +6,15 @@ import { CrearUsuarioSchema, type CrearUsuarioInput } from '@/lib/validations/us
 
 export type { CrearUsuarioInput };
 
+export type CredencialUsuario = {
+  id: string;
+  email: string;
+  password: string;
+  rol: Usuario['rol'];
+  activo: boolean;
+  empresasIds: string[];
+};
+
 // argon2id params: OWASP minimum for interactive login (m=19456 KiB, t=2, p=1)
 const ARGON2_OPTIONS = {
   memoryCost: 19456,
@@ -38,12 +47,36 @@ export async function crearUsuario(input: CrearUsuarioInput): Promise<Omit<Usuar
   }
 }
 
-export async function buscarPorEmail(email: string): Promise<Usuario | null> {
-  return prisma.usuario.findUnique({
+export async function buscarPorEmail(email: string): Promise<Omit<Usuario, 'password'> | null> {
+  const usuario = await prisma.usuario.findUnique({
     where: { email: email.toLowerCase() },
   });
+  if (!usuario) return null;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { password: _, ...sinPassword } = usuario;
+  return sinPassword;
 }
 
-export async function verificarContrasena(hash: string, password: string): Promise<boolean> {
-  return verify(hash, password);
+/**
+ * USO INTERNO AUTH. No exponer fuera del flujo de login.
+ * Retorna hash de contraseña y empresasIds para que authorize los embeba en JWT.
+ */
+export async function obtenerCredencialPorEmail(email: string): Promise<CredencialUsuario | null> {
+  const usuario = await prisma.usuario.findUnique({
+    where: { email: email.toLowerCase() },
+    include: { empresas: { select: { empresaId: true } } },
+  });
+  if (!usuario) return null;
+  return {
+    id: usuario.id,
+    email: usuario.email,
+    password: usuario.password,
+    rol: usuario.rol,
+    activo: usuario.activo,
+    empresasIds: usuario.empresas.map((ue) => ue.empresaId),
+  };
+}
+
+export async function verificarContrasena(hashStr: string, password: string): Promise<boolean> {
+  return verify(hashStr, password);
 }

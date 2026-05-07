@@ -1,5 +1,48 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CrearUsuarioSchema, LoginSchema } from '@/lib/validations/usuario';
+
+// ──────────────────────────────────────────────────────────────────────
+// buscarPorEmail — no expone password
+// ──────────────────────────────────────────────────────────────────────
+const mockFindUnique = vi.fn();
+vi.mock('@/lib/prisma', () => ({
+  prisma: { usuario: { findUnique: mockFindUnique } },
+}));
+
+describe('buscarPorEmail', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('BP1 retorna null si no existe el usuario', async () => {
+    mockFindUnique.mockResolvedValue(null);
+    const { buscarPorEmail } = await import('./usuario.service');
+    expect(await buscarPorEmail('noexiste@test.pe')).toBeNull();
+  });
+
+  it('BP2 no incluye el campo password en el retorno', async () => {
+    mockFindUnique.mockResolvedValue({
+      id: 'u1',
+      email: 'admin@test.pe',
+      nombre: 'Admin',
+      apellidos: 'Test',
+      password: '$argon2id$...',
+      rol: 'ADMIN',
+      activo: true,
+      creadoEn: new Date(),
+      actualizadoEn: new Date(),
+    });
+    const { buscarPorEmail } = await import('./usuario.service');
+    const result = await buscarPorEmail('admin@test.pe');
+    expect(result).not.toBeNull();
+    expect(result).not.toMatchObject({ password: expect.anything() });
+  });
+
+  it('BP3 normaliza email a minúsculas en el lookup', async () => {
+    mockFindUnique.mockResolvedValue(null);
+    const { buscarPorEmail } = await import('./usuario.service');
+    await buscarPorEmail('ADMIN@TEST.PE');
+    expect(mockFindUnique).toHaveBeenCalledWith({ where: { email: 'admin@test.pe' } });
+  });
+});
 
 // ──────────────────────────────────────────────────────────────────────
 // CrearUsuarioSchema
