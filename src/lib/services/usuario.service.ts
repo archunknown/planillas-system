@@ -9,6 +9,8 @@ export type { CrearUsuarioInput };
 export type CredencialUsuario = {
   id: string;
   email: string;
+  nombre: string;
+  apellidos: string;
   password: string;
   rol: Usuario['rol'];
   activo: boolean;
@@ -70,6 +72,8 @@ export async function obtenerCredencialPorEmail(email: string): Promise<Credenci
   return {
     id: usuario.id,
     email: usuario.email,
+    nombre: usuario.nombre,
+    apellidos: usuario.apellidos,
     password: usuario.password,
     rol: usuario.rol,
     activo: usuario.activo,
