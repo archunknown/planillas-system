@@ -3,3 +3,4 @@ export * from './trabajador';
 export * from './hijo';
 export * from './contrato';
 export * from './liquidacion';
+export * from './usuario';

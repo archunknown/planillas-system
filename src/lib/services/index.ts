@@ -4,3 +4,4 @@ export * from './empresa.service';
 export * from './trabajador.service';
 export * from './contrato.service';
 export * from './liquidacion.service';
+export * from './usuario.service';
