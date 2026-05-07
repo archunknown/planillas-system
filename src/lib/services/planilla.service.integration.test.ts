@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { prisma } from '@/lib/prisma';
-import { calcularPlanillaPeriodo, calcularLiquidacionContrato } from './planilla.service';
+import { calcularPlanillaPeriodo } from './planilla.service';
+import { calcular as calcularLiquidacion } from './liquidacion.service';
 import { calcularGratificacionMypePequena } from '@/lib/calculations/regimenes/mype';
 
 // Año ficticio para no colisionar con datos reales
@@ -321,7 +322,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     const c = await crearContrato(t.id, e.id); // GENERAL, rem=1500, ONP, sin hijos, inicio 01/01/2026
 
     const fechaCese = new Date(Date.UTC(2026, 5, 15)); // 15 junio 2026
-    const liq = await calcularLiquidacionContrato(c.id, fechaCese);
+    const liq = await calcularLiquidacion({ contratoId: c.id, fechaCese });
 
     expect(liq.ctsTrunca.toNumber()).toBeCloseTo(187.50, 2);
     expect(liq.gratificacionTrunca.toNumber()).toBeCloseTo(1375.00, 2);
@@ -487,7 +488,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     const t = await crearTrabajador(e.id);
     const c = await crearContrato(t.id, e.id);
 
-    const liq = await calcularLiquidacionContrato(c.id, new Date(Date.UTC(2026, 5, 15)));
+    const liq = await calcularLiquidacion({ contratoId: c.id, fechaCese: new Date(Date.UTC(2026, 5, 15)) });
 
     expect(liq.ctsTrunca.toNumber()).toBeCloseTo(187.50, 2);
   });
@@ -522,7 +523,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     });
 
     try {
-      const liq = await calcularLiquidacionContrato(c.id, new Date(Date.UTC(2026, 5, 15)));
+      const liq = await calcularLiquidacion({ contratoId: c.id, fechaCese: new Date(Date.UTC(2026, 5, 15)) });
 
       expect(liq.ctsTrunca.toNumber()).toBeCloseTo(218.75, 2);
       expect(liq.gratificacionTrunca.toNumber()).toBeCloseTo(1375.00, 2);
