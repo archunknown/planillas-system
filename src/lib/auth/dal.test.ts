@@ -16,6 +16,7 @@ describe('getSession', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('D1 retorna null cuando no hay sesión activa', async () => {
+    // FIXME(phase3-cleanup): cast por tipo OUTPUT vs Prisma. Revisar al refactorizar tests.
     mockAuth.mockResolvedValue(null as unknown as Parameters<typeof mockAuth.mockResolvedValue>[0]);
     expect(await getSession()).toBeNull();
   });
@@ -25,11 +26,13 @@ describe('getSession', () => {
       user: { id: 'u1', email: 'admin@test.pe', name: 'Admin', rol: 'ADMIN', empresasIds: [] },
       expires: '2026-06-01T00:00:00.000Z',
     };
+    // FIXME(phase3-cleanup): cast por tipo OUTPUT vs Prisma. Revisar al refactorizar tests.
     mockAuth.mockResolvedValue(mockSession as unknown as Parameters<typeof mockAuth.mockResolvedValue>[0]);
     expect(await getSession()).toEqual(mockSession);
   });
 
   it('D3 delega directamente a auth() de next-auth', async () => {
+    // FIXME(phase3-cleanup): cast por tipo OUTPUT vs Prisma. Revisar al refactorizar tests.
     mockAuth.mockResolvedValue(null as unknown as Parameters<typeof mockAuth.mockResolvedValue>[0]);
     await getSession();
     expect(mockAuth).toHaveBeenCalledOnce();
