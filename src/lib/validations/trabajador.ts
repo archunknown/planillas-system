@@ -42,5 +42,5 @@ export const CrearTrabajadorConHijosSchema = z.object({
 
 export type CrearTrabajadorInput = z.infer<typeof CrearTrabajadorSchema>;
 export type ActualizarTrabajadorInput = z.infer<typeof ActualizarTrabajadorSchema>;
-export type ListarTrabajadoresInput = z.infer<typeof ListarTrabajadoresSchema>;
-export type CrearTrabajadorConHijosInput = z.infer<typeof CrearTrabajadorConHijosSchema>;
+export type ListarTrabajadoresInput = z.input<typeof ListarTrabajadoresSchema>;
+export type CrearTrabajadorConHijosInput = z.input<typeof CrearTrabajadorConHijosSchema>;
