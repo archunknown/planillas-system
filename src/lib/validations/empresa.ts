@@ -33,6 +33,6 @@ export const ListarEmpresasSchema = z.object({
   porPagina: z.number().int().min(1).max(100).default(20),
 });
 
-export type CrearEmpresaInput = z.infer<typeof CrearEmpresaSchema>;
+export type CrearEmpresaInput = z.input<typeof CrearEmpresaSchema>;
 export type ActualizarEmpresaInput = z.infer<typeof ActualizarEmpresaSchema>;
-export type ListarEmpresasInput = z.infer<typeof ListarEmpresasSchema>;
+export type ListarEmpresasInput = z.input<typeof ListarEmpresasSchema>;

@@ -27,4 +27,4 @@ export const ListarLiquidacionesSchema = z.object({
 
 export type CalcularLiquidacionInput = z.infer<typeof CalcularLiquidacionSchema>;
 export type AnularLiquidacionInput = z.infer<typeof AnularLiquidacionSchema>;
-export type ListarLiquidacionesInput = z.infer<typeof ListarLiquidacionesSchema>;
+export type ListarLiquidacionesInput = z.input<typeof ListarLiquidacionesSchema>;

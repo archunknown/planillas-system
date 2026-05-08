@@ -16,7 +16,7 @@ describe('getSession', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('D1 retorna null cuando no hay sesión activa', async () => {
-    mockAuth.mockResolvedValue(null);
+    mockAuth.mockResolvedValue(null as unknown as Parameters<typeof mockAuth.mockResolvedValue>[0]);
     expect(await getSession()).toBeNull();
   });
 
@@ -25,12 +25,12 @@ describe('getSession', () => {
       user: { id: 'u1', email: 'admin@test.pe', name: 'Admin', rol: 'ADMIN', empresasIds: [] },
       expires: '2026-06-01T00:00:00.000Z',
     };
-    mockAuth.mockResolvedValue(mockSession as Parameters<typeof mockAuth.mockResolvedValue>[0]);
+    mockAuth.mockResolvedValue(mockSession as unknown as Parameters<typeof mockAuth.mockResolvedValue>[0]);
     expect(await getSession()).toEqual(mockSession);
   });
 
   it('D3 delega directamente a auth() de next-auth', async () => {
-    mockAuth.mockResolvedValue(null);
+    mockAuth.mockResolvedValue(null as unknown as Parameters<typeof mockAuth.mockResolvedValue>[0]);
     await getSession();
     expect(mockAuth).toHaveBeenCalledOnce();
   });
