@@ -2,6 +2,7 @@ import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import type { JWT } from 'next-auth/jwt';
 import type { Session } from 'next-auth';
+import { authConfig } from './auth.config';
 import { LoginSchema } from '@/lib/validations/usuario';
 import {
   obtenerCredencialPorEmail,
@@ -48,6 +49,7 @@ export function embedUserInToken(token: JWT, user: AuthPayload): JWT {
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  ...authConfig,
   providers: [
     Credentials({
       credentials: {
@@ -60,8 +62,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       ) => Promise<AuthPayload | null>,
     }),
   ],
-  session: { strategy: 'jwt', maxAge: 60 * 60 * 8 },
   callbacks: {
+    ...authConfig.callbacks,
     jwt({ token, user, trigger }) {
       if (trigger === 'signIn' && user) {
         return embedUserInToken(token, user as unknown as AuthPayload);
@@ -79,5 +81,4 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       };
     },
   },
-  pages: { signIn: '/login' },
 });
