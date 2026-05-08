@@ -19,6 +19,11 @@ export const authConfig: NextAuthConfig = {
         return true;
       }
 
+      // /api/auth/* is NextAuth's own routes — never require auth
+      if (pathname.startsWith('/api/auth')) {
+        return true;
+      }
+
       if (pathname.startsWith('/dashboard') || pathname.startsWith('/api')) {
         return isAuthenticated;
       }
