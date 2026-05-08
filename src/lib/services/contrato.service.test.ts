@@ -16,7 +16,7 @@ const baseContrato = {
 describe('CrearContratoSchema', () => {
   it('acepta input mínimo válido con defaults', () => {
     const r = CrearContratoSchema.parse(baseContrato);
-    expect(r.activo).toBeUndefined(); // activo no es campo de input
+    expect((r as Record<string, unknown>).activo).toBeUndefined(); // activo no es campo de input
     expect(r.jornadaSemanal).toBe(48);
     expect(r.categoriaCC).toBe('NINGUNA');
     expect(r.recibeBETA).toBe(false);

@@ -114,9 +114,9 @@ export const CerrarContratoSchema = z.object({
   motivoCese: z.string().min(1).max(300),
 });
 
-export type CrearContratoInput = z.infer<typeof CrearContratoSchema>;
+export type CrearContratoInput = z.input<typeof CrearContratoSchema>;
 export type ActualizarContratoInput = z.infer<typeof ActualizarContratoSchema>;
-export type ListarContratosInput = z.infer<typeof ListarContratosSchema>;
+export type ListarContratosInput = z.input<typeof ListarContratosSchema>;
 export type CerrarContratoInput = z.infer<typeof CerrarContratoSchema>;
 
 // Needed to convert remuneracionBase (number) to Decimal for Prisma
