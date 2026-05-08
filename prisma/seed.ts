@@ -2,6 +2,7 @@ import { config } from 'dotenv';
 config();
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
+import { hash } from '@node-rs/argon2';
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -40,6 +41,29 @@ async function upsertParametro(param: ParamSeed): Promise<void> {
       },
     });
   }
+}
+
+async function seedAdmin(): Promise<void> {
+  const email = process.env.SEED_ADMIN_EMAIL ?? 'admin@estudio.pe';
+  const rawPassword = process.env.SEED_ADMIN_PASSWORD ?? 'Admin1234!';
+
+  const existing = await prisma.usuario.findUnique({ where: { email } });
+  if (existing) {
+    console.log(`  ↩ Admin ya existe (${email}), sin cambios.`);
+    return;
+  }
+
+  const passwordHash = await hash(rawPassword, { memoryCost: 19456, timeCost: 2, parallelism: 1 });
+  await prisma.usuario.create({
+    data: {
+      email,
+      nombre: 'Admin',
+      apellidos: 'Sistema',
+      password: passwordHash,
+      rol: 'ADMIN',
+    },
+  });
+  console.log(`  ✓ Admin creado: ${email}`);
 }
 
 async function main(): Promise<void> {
@@ -462,6 +486,10 @@ async function main(): Promise<void> {
     console.log(`  ✓ ${param.codigo}`);
   }
 
+  console.log('\nSeed parámetros completado.');
+
+  console.log('\nSeed admin...');
+  await seedAdmin();
   console.log('\nSeed completado.');
 }
 

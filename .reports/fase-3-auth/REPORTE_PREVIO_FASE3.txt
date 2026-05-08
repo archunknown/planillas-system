@@ -1,0 +1,396 @@
+════════════════════════════════════════════════════════════════════════════════
+REPORTE PREVIO FASE 3 — Auth + API (NextAuth v5 + Server Actions / Route Handlers)
+Fecha: 2026-05-06
+════════════════════════════════════════════════════════════════════════════════
+
+── 1. VERIFICACIÓN GIT ──────────────────────────────────────────────────────────
+
+Rama activa:      feat/phase3-auth  (creada desde main en esta sesión)
+Último commit:    335311f  Merge branch 'feat/phase2-services' — Fase 2 completa
+Tag visible:      v0.2.0-services-crud
+Estado:           limpio — sin archivos staged ni modificados
+
+── 2. INVENTARIO AUTH ACTUAL ────────────────────────────────────────────────────
+
+2.1  schema.prisma
+
+  enum Rol {
+    ADMIN       // Dueño del estudio contable
+    CONTADOR    // Asistentes contables
+    CLIENTE     // Empresario - solo lectura
+  }
+
+  model Usuario {
+    id            String    @id @default(cuid())
+    email         String    @unique
+    nombre        String
+    apellidos     String
+    password      String    // Hash bcrypt  ← COMENTARIO DESACTUALIZADO (cambiará a argon2id)
+    rol           Rol
+    activo        Boolean   @default(true)
+    creadoEn      DateTime  @default(now())
+    actualizadoEn DateTime  @updatedAt
+    empresas      UsuarioEmpresa[]
+    @@map("usuarios")
+  }
+
+  model UsuarioEmpresa {
+    id        String  @id @default(cuid())
+    usuarioId String
+    empresaId String
+    usuario   Usuario @relation(...)
+    empresa   Empresa @relation(...)
+    @@unique([usuarioId, empresaId])
+    @@map("usuarios_empresas")
+  }
+
+2.2  Tabla DB
+
+  Las tablas "usuarios" y "usuarios_empresas" ya existen en la DB desde la
+  migración inicial (20260411230500_init). Sin datos aún (tabla vacía).
+  → NO se requiere migración en Lote 1. Solo seed + comentario en schema.
+
+2.3  next-auth instalado
+
+  next-auth: ^4.24.13 (v4, compatible con Pages Router, tiene fricciones con App Router)
+  Última beta de v5 disponible en npm: 5.0.0-beta.31
+  → Se requiere upgrade de v4 → v5. Cambio de API completo (Breaking change).
+
+2.4  Librerías de hashing
+
+  argon2          → NO instalada
+  @node-rs/argon2 → NO instalada
+  bcryptjs        → NO instalada
+  → Ninguna instalada todavía. Se instalarán en Lote 1.
+
+2.5  Directorios auth / actions / api
+
+  src/lib/auth/    → NO existe
+  src/app/actions/ → NO existe
+  src/app/api/     → NO existe
+  src/app/         → Solo layout.tsx + page.tsx (scaffold por defecto)
+
+── 3. STACK AUTH RECOMENDADO ────────────────────────────────────────────────────
+
+3.1  Auth.js v5 (next-auth@5) — CONFIRMADO (per spec)
+
+  Justificación técnica:
+  • Auth.js v5 está diseñado nativamente para el App Router de Next.js 13+.
+    Exports de uso limpio: { auth, handlers, signIn, signOut }.
+  • v4 requiere workarounds para usar auth en Server Components/Actions
+    (no tiene `auth()` callable directamente en server; usa `getServerSession()`
+    con import de `authOptions` lo que introduce acoplamiento innecesario).
+  • Next.js 16 tiene `unauthorized()` y `forbidden()` de next/navigation
+    (experimental, vía authInterrupts) — diseñados para integrarse con el
+    patrón `auth()` de Auth.js v5.
+  • La guía oficial de autenticación en Next.js 16 docs referencia Auth.js v5.
+
+  Riesgo: Auth.js v5.0.0-beta.31 es beta oficial. Estable en la práctica para
+  este caso de uso (Credentials provider + JWT). No hay GA release todavía.
+  Mitigación: fijar versión exacta en package.json (sin ^/~) para que no
+  mueva automáticamente a una beta posterior.
+
+  Acción lote 1/2: npm remove next-auth && npm install next-auth@5.0.0-beta.31
+
+3.2  JWT vs Database Sessions — JWT CONFIRMADO (per PRD)
+
+  Estructura del token:
+    { sub: userId, rol: Rol, empresasIds: string[] }
+
+  Beneficios en este proyecto:
+  • Sin carga de DB en cada request (el middleware valida el JWT en el edge,
+    sin round-trip a PostgreSQL).
+  • Simplicidad: no se necesita tabla de sesiones ni `@auth/prisma-adapter`.
+    Auth.js con Credentials + JWT no requiere adaptador de DB.
+  • empresasIds se embebe al login para ownership checks sin consultas extra.
+
+  Limitación conocida (documentada, no bloqueante):
+  • Si un ADMIN modifica las UsuarioEmpresa de un CLIENTE mientras tiene
+    sesión activa, el JWT no refleja el cambio hasta que expire.
+    Tiempo de expiración propuesto: 8h (configurable per spec).
+    Para un estudio contable con pocos usuarios, el riesgo es aceptable.
+
+  NO se instala @auth/prisma-adapter. La razón: el adaptador de Prisma sirve
+  para OAuth (almacenar Account, Session, VerificationToken en DB). Con
+  Credentials + JWT no es necesario ni recomendable.
+
+3.3  Hashing: argon2id — CONFIRMADO (per spec)
+
+  Recomendación: @node-rs/argon2 (en lugar de argon2 o argon2id puros)
+
+  Razón técnica:
+  • `argon2` (npm): binarios nativos compilados con node-gyp + Python. Puede
+    fallar en entornos sin build tools (CI limpio, Docker Alpine, ARM).
+  • `@node-rs/argon2`: implementación Rust-based vía NAPI-RS. Binarios
+    precompilados para linux-x64-gnu (este entorno), darwin, win32, ARM.
+    Sin dependencias de Python/node-gyp. Misma API que argon2id.
+  • Algoritmo usado: Argon2id (variante híbrida, resistente a ataques GPU
+    y de canal lateral). Recomendado por OWASP Password Storage Cheat Sheet.
+  • Parámetros por defecto de @node-rs/argon2: memory=65536, iterations=3,
+    parallelism=4 — apropiados para producción.
+
+  Fallback si @node-rs/argon2 falla: bcryptjs (pure JS, sin native deps).
+  Reportar en el commit si se usa fallback.
+
+── 4. MODELO DE AUTORIZACIÓN ────────────────────────────────────────────────────
+
+4.1  Roles y permisos
+
+  ADMIN
+    • Crea y gestiona Usuarios (CRUD completo).
+    • Accede a TODAS las Empresas, sin restricción por UsuarioEmpresa.
+    • Puede crear CONTADOR y CLIENTE. Puede desactivar usuarios.
+    • Accede a configuración de ParametroLegal.
+
+  CONTADOR
+    • Accede a las Empresas asignadas vía UsuarioEmpresa.
+    • CRUD completo sobre: Trabajador, Hijo, Contrato, Planilla, Liquidacion
+      de sus empresas asignadas.
+    • No puede crear/gestionar Usuarios.
+
+  CLIENTE (solo lectura)
+    • Accede ÚNICAMENTE a sus propias empresas (UsuarioEmpresa).
+    • Solo lectura: ve planillas y liquidaciones de sus empresas. No puede
+      crear, actualizar ni eliminar ningún registro.
+    • En Fase 3 se implementa el guard de ownership. La UI de CLIENTE es
+      deuda de Fase 4.
+
+4.2  Diagrama de relaciones (texto plano)
+
+  Usuario (1) ─────── (N) UsuarioEmpresa (N) ─────── (1) Empresa
+      │                                                      │
+      │ rol: ADMIN/CONTADOR/CLIENTE                         │
+      │                                                      │
+      └── ADMIN: acceso global (sin join UsuarioEmpresa)     │
+      └── CONTADOR/CLIENTE: acceso vía UsuarioEmpresa ───────┘
+
+  Empresa (1) ──── (N) Trabajador ──── (N) Contrato ──── (N) PlanillaDetalle
+                                                       └── (N) Liquidacion
+
+4.3  Checks de autorización en cada capa
+
+  Server Action / Route Handler
+    1. verifySession() → obtiene JWT; lanza unauthorized() si no existe.
+    2. requireRole([ADMIN, CONTADOR]) → lanza forbidden() si rol no permitido.
+    3. requireOwnership(empresaId) → para CLIENTE, verifica que empresaId
+       esté en session.empresasIds; para ADMIN/CONTADOR no aplica (bypass).
+    4. Llama al service de Fase 2 sin pasar userId (servicios son agnósticos).
+
+4.4  JWT payload
+
+  interface JwtPayload {
+    sub:         string      // userId (cuid)
+    rol:         Rol         // 'ADMIN' | 'CONTADOR' | 'CLIENTE'
+    empresasIds: string[]    // [] para ADMIN (acceso global implícito)
+    name:        string      // nombre + apellidos
+    email:       string
+    iat:         number
+    exp:         number
+  }
+
+  empresasIds se carga al login desde UsuarioEmpresa:
+    • ADMIN → empresasIds = [] (el guard lo interpreta como "acceso total")
+    • CONTADOR/CLIENTE → empresasIds = ids reales de sus empresas asignadas
+
+── 5. SERVER ACTIONS vs ROUTE HANDLERS ─────────────────────────────────────────
+
+5.1  Decisión: mix (confirmada per spec)
+
+  SERVER ACTIONS ('use server') → MUTATIONS
+    • crear/actualizar/eliminar: empresa, trabajador, hijo, contrato, liquidacion
+    • Beneficios:
+      - CSRF protection built-in (Origin vs Host check by Next.js 16)
+      - Encrypted action IDs (non-deterministic, periodically rotated)
+      - Type-safe: el cliente importa la función, no una URL
+      - Integración directa con useActionState de React 19
+      - Dead code elimination de actions no usadas
+
+  ROUTE HANDLERS (app/api/) → READS + EXPORTS
+    • GET endpoints para listas/detalles (consumibles por clientes externos
+      o mobile apps en fases futuras)
+    • Exports: PLAME (Fase 5), AFP-Net (Fase 5), boletas PDF (Fase 5)
+    • Razón: los exports requieren headers específicos (Content-Disposition,
+      Content-Type: application/octet-stream) que no son posibles en
+      Server Actions (que devuelven datos serializados para React)
+
+5.2  Patrón de acción protegida
+
+  // app/actions/empresa.actions.ts
+  'use server'
+  import { requireRole } from '@/lib/auth/guards'
+  import { crearEmpresa as _crearEmpresa } from '@/lib/services/empresa.service'
+
+  export async function crearEmpresaAction(input: CrearEmpresaInput) {
+    await requireRole(['ADMIN', 'CONTADOR'])   // guard: session + rol
+    return _crearEmpresa(input)
+  }
+
+  // El service de Fase 2 NO se modifica. La auth vive en la Action.
+
+5.3  Patrón de Route Handler protegido
+
+  // app/api/empresas/route.ts
+  import { requireRole } from '@/lib/auth/guards'
+  import { listarEmpresas } from '@/lib/services/empresa.service'
+
+  export async function GET(req: NextRequest) {
+    const session = await requireRole(['ADMIN', 'CONTADOR'])
+    const empresas = await listarEmpresas(session.empresasIds)
+    return NextResponse.json(empresas)
+  }
+
+── 6. ESTRUCTURA DE CARPETAS PROPUESTA ─────────────────────────────────────────
+
+  src/
+  ├── auth.ts                        ← NextAuth config (exporta auth, handlers, signIn, signOut)
+  ├── middleware.ts                  ← Protege rutas; redirige a /login si sin sesión
+  ├── lib/
+  │   ├── auth/
+  │   │   ├── dal.ts                 ← verifySession(), getCurrentUser() — React.cache, server-only
+  │   │   └── guards.ts              ← requireSession, requireRole, requireOwnership
+  │   ├── services/
+  │   │   ├── usuario.service.ts     ← crearUsuario, buscarPorEmail, verificarContrasena (NUEVO)
+  │   │   └── ... (Fase 2 sin tocar)
+  │   └── validations/
+  │       ├── usuario.ts             ← CrearUsuarioSchema, LoginSchema (NUEVO)
+  │       └── ... (Fase 2 sin tocar)
+  └── app/
+      ├── api/
+      │   ├── auth/
+      │   │   └── [...nextauth]/
+      │   │       └── route.ts       ← export { GET, POST } = handlers
+      │   ├── empresas/
+      │   │   └── route.ts           ← GET /api/empresas
+      │   ├── trabajadores/
+      │   │   └── route.ts           ← GET /api/trabajadores?empresaId=...
+      │   ├── contratos/
+      │   │   └── route.ts           ← GET /api/contratos?empresaId=...
+      │   └── liquidaciones/
+      │       └── route.ts           ← GET /api/liquidaciones?empresaId=...
+      ├── actions/
+      │   ├── auth.actions.ts        ← loginAction, logoutAction
+      │   ├── empresa.actions.ts     ← crearEmpresaAction, actualizarEmpresaAction, ...
+      │   ├── trabajador.actions.ts
+      │   ├── contrato.actions.ts
+      │   └── liquidacion.actions.ts
+      ├── (auth)/                    ← Route group sin layout del dashboard
+      │   └── login/
+      │       └── page.tsx
+      ├── (dashboard)/               ← Route group con layout protegido
+      │   ├── layout.tsx             ← Verifica sesión server-side
+      │   └── page.tsx               ← Dashboard home
+      ├── unauthorized.tsx           ← Renderizado por unauthorized() de Next.js 16
+      ├── forbidden.tsx              ← Renderizado por forbidden() de Next.js 16
+      ├── layout.tsx
+      └── page.tsx
+
+  Nota: next.config.ts requiere:
+    experimental: { authInterrupts: true }   ← para unauthorized() y forbidden()
+
+── 7. LOTES (VALIDACIÓN DE PROPUESTA) ──────────────────────────────────────────
+
+Confirmo la división de 4 lotes propuesta. Detalle ajustado:
+
+LOTE 1 — Base Usuario (sin migración nueva — tabla ya existe)
+  Instalar: next-auth@5.0.0-beta.31, @node-rs/argon2 (o fallback bcryptjs)
+  Cambios schema: solo comentario password // Hash bcrypt → // Hash argon2id
+  Crear:
+    src/lib/validations/usuario.ts
+      • CrearUsuarioSchema (email, nombre, apellidos, password, rol)
+      • LoginSchema (email, password)
+    src/lib/services/usuario.service.ts
+      • crearUsuario(input) — hashea con argon2id, persiste en DB
+      • buscarPorEmail(email) — para el authorize callback de NextAuth
+      • verificarContrasena(hash, plain) — argon2.verify
+    src/lib/services/usuario.service.test.ts (Zod unit tests)
+    Extender prisma/seed.ts con seedAdmin() — crea usuario ADMIN inicial si no existe
+  Tests: validación Zod + unit de hash/verify (sin DB)
+  Commit: feat(auth): usuario service + seed admin [lote 1/4]
+
+LOTE 2 — NextAuth v5 + Credentials + Login
+  Instalar: (paquetes de Lote 1 ya instalados)
+  Crear:
+    src/auth.ts — NextAuth config completa
+    src/app/api/auth/[...nextauth]/route.ts — handlers
+    src/app/(auth)/login/page.tsx — formulario login básico
+    types/next-auth.d.ts — augmentación de tipos (Session con rol, empresasIds)
+  Tests:
+    src/auth.test.ts — unit tests del authorize callback (mockeando prisma y argon2)
+    Test de login funcional: verifica que devuelve token con rol y empresasIds
+  Commit: feat(auth): nextauth v5 credentials + login [lote 2/4]
+
+LOTE 3 — Guards + DAL + Middleware
+  Crear:
+    src/lib/auth/dal.ts — verifySession (React.cache), getCurrentUser
+    src/lib/auth/guards.ts — requireSession, requireRole, requireOwnership
+    src/middleware.ts — protege rutas /dashboard/* y /api/* salvo /api/auth/*
+    src/app/unauthorized.tsx — página 401
+    src/app/forbidden.tsx — página 403
+  Configurar: next.config.ts experimental.authInterrupts = true
+  Tests:
+    src/lib/auth/guards.test.ts — unit tests con sesión mockeada
+    Casos: sin sesión → unauthorized(), rol incorrecto → forbidden(),
+           CLIENTE con empresa no asignada → forbidden(), ADMIN bypass ownership
+  Commit: feat(auth): guards + DAL + middleware [lote 3/4]
+
+LOTE 4 — Server Actions + Route Handlers
+  Crear:
+    src/app/actions/ (5 archivos: auth + 4 entidades)
+    src/app/api/ (4 route handlers: empresas, trabajadores, contratos, liquidaciones)
+  Tests de integración (sesión mockeada):
+    Cada action: happy path + unauthorized + forbidden + ownership
+    Cada route handler: happy path + unauthorized
+  Commit: feat(auth): server actions + route handlers [lote 4/4]
+
+── 8. RIESGOS DETECTADOS ────────────────────────────────────────────────────────
+
+R1 — Auth.js v5 es beta (MEDIO)
+  5.0.0-beta.31 — no hay GA release. La API puede cambiar entre betas.
+  Mitigación: fijar versión exacta. Leer changelog antes de cada instalación.
+
+R2 — @node-rs/argon2 native binaries (BAJO)
+  Si el entorno no tiene los binarios precompilados, falla. En este entorno
+  (linux-x64-gnu, Arch Linux) existe el prebuilt.
+  Mitigación: si falla → fallback a bcryptjs (pure JS). Reportar en commit.
+
+R3 — empresasIds en JWT puede quedar stale (BAJO, documentado)
+  Si UsuarioEmpresa cambia durante sesión activa, el JWT no refleja el cambio.
+  Mitigación aceptada: expiración corta (8h). Documentar como limitación conocida.
+  Solución futura: invalidar JWT vía jti blacklist en Redis (Fase 5 o posterior).
+
+R4 — Testing de Server Actions (MEDIO)
+  Vitest no ejecuta el runtime de Next.js. Server Actions con 'use server' no
+  pueden testearse con importación directa en todos los casos.
+  Mitigación: extraer lógica a funciones pure (actions son wrappers delgados
+  que llaman a guards + service). Los guards se testean por separado.
+  Los actions se testean en tests de integración con sesión mockeada via vi.mock.
+
+R5 — No existe UI (BAJO para Fase 3, se documenta)
+  El dashboard y las vistas de CLIENTE no se construyen en Fase 3. Solo login.
+  La Fase 3 entrega la capa de auth/actions sin UI completa de gestión.
+  Mitigación: suficiente para tesis — la UI se cubre en Fase 4.
+
+R6 — Upgrade de next-auth v4 → v5 (MEDIO)
+  El package.json actual tiene "next-auth": "^4.24.13". El upgrade es breaking.
+  No hay archivos de next-auth en src/ todavía (no hay config que migrar).
+  Mitigación: limpio — solo actualizar package.json. Sin migración de código.
+
+R7 — authInterrupts experimental (BAJO)
+  unauthorized() y forbidden() son marcados `version: experimental` en Next.js 16.
+  Requiere next.config.ts experimental.authInterrupts = true.
+  Mitigación: si da problemas, reemplazar con redirect('/unauthorized') manualmente.
+
+── 9. DECISIONES DE DISEÑO CONFIRMADAS ─────────────────────────────────────────
+
+  [OK] Auth.js v5 (next-auth@5.0.0-beta.31) — Credentials provider únicamente
+  [OK] JWT strategy — sin database sessions — sin @auth/prisma-adapter
+  [OK] Hashing argon2id vía @node-rs/argon2 (fallback: bcryptjs)
+  [OK] Guards desacoplados de services. Services de Fase 2 sin modificar.
+  [OK] Server Actions para mutations. Route Handlers para reads/exports.
+  [OK] Audit log: NO en Fase 3. Deuda explícita documentada.
+  [OK] Login page mínima funcional (sin UI completa de dashboard).
+  [OK] Tests: guards unit + actions integración con sesión mockeada.
+
+────────────────────────────────────────────────────────────────────────────────
+Esperando aprobación para proceder con LOTE 1.
+════════════════════════════════════════════════════════════════════════════════

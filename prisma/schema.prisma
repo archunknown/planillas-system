@@ -25,7 +25,7 @@ model Usuario {
   email         String    @unique
   nombre        String
   apellidos     String
-  password      String    // Hash bcrypt
+  password      String    // Hash argon2id
   rol           Rol
   activo        Boolean   @default(true)
   creadoEn      DateTime  @default(now())
