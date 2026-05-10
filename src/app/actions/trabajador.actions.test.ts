@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ServiceError } from '@/lib/errors/service-error';
 
 vi.mock('server-only', () => ({}));
+vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('next/navigation', () => ({
   unauthorized: vi.fn(() => { throw new Error('UNAUTHORIZED'); }),
   forbidden: vi.fn(() => { throw new Error('FORBIDDEN'); }),
@@ -175,7 +177,7 @@ describe('agregarHijoAction', () => {
 describe('actualizarHijoAction', () => {
   it('TA13 happy path — resuelve empresa vía hijo→trabajador', async () => {
     mockRequireRole.mockResolvedValue(undefined as never);
-    mockHijoFindUnique.mockResolvedValue({ trabajador: { empresaId: 'e1' } } as never);
+    mockHijoFindUnique.mockResolvedValue({ trabajadorId: 't1', trabajador: { empresaId: 'e1' } } as never);
     mockRequireOwnership.mockResolvedValue(undefined as never);
     mockActualizarHijo.mockResolvedValue(HIJO as never);
     await actualizarHijoAction('h1', {} as never);
@@ -185,7 +187,7 @@ describe('actualizarHijoAction', () => {
 
   it('TA14 ownership violado → forbidden', async () => {
     mockRequireRole.mockResolvedValue(undefined as never);
-    mockHijoFindUnique.mockResolvedValue({ trabajador: { empresaId: 'e99' } } as never);
+    mockHijoFindUnique.mockResolvedValue({ trabajadorId: 't1', trabajador: { empresaId: 'e99' } } as never);
     mockRequireOwnership.mockRejectedValue(new Error('FORBIDDEN'));
     await expect(actualizarHijoAction('h1', {} as never)).rejects.toThrow('FORBIDDEN');
   });
@@ -194,10 +196,41 @@ describe('actualizarHijoAction', () => {
 describe('eliminarHijoAction', () => {
   it('TA15 happy path', async () => {
     mockRequireRole.mockResolvedValue(undefined as never);
-    mockHijoFindUnique.mockResolvedValue({ trabajador: { empresaId: 'e1' } } as never);
+    mockHijoFindUnique.mockResolvedValue({ trabajadorId: 't1', trabajador: { empresaId: 'e1' } } as never);
     mockRequireOwnership.mockResolvedValue(undefined as never);
     mockEliminarHijo.mockResolvedValue(HIJO as never);
     await eliminarHijoAction('h1');
     expect(mockEliminarHijo).toHaveBeenCalledWith('h1');
+  });
+});
+
+describe('safeAction wrapping — ServiceError → ActionResult', () => {
+  it('TA-NEW1 crearTrabajadorAction ServiceError → { ok: false, error, code }', async () => {
+    mockRequireRole.mockResolvedValue(undefined as never);
+    mockRequireOwnership.mockResolvedValue(undefined as never);
+    mockCrear.mockRejectedValue(new ServiceError('DUPLICATE', 'DNI duplicado'));
+    const result = await crearTrabajadorAction({ empresaId: 'e1' } as never);
+    expect(result).toEqual({ ok: false, error: 'DNI duplicado', code: 'DUPLICATE' });
+  });
+
+  it('TA-NEW2 actualizarTrabajadorAction ServiceError → { ok: false, error, code }', async () => {
+    mockRequireRole.mockResolvedValue(undefined as never);
+    mockObtenerPorId.mockRejectedValue(new ServiceError('NOT_FOUND', 'Trabajador no encontrado'));
+    const result = await actualizarTrabajadorAction('t99', {} as never);
+    expect(result).toEqual({ ok: false, error: 'Trabajador no encontrado', code: 'NOT_FOUND' });
+  });
+
+  it('TA-NEW3 agregarHijoAction ServiceError → { ok: false, error, code }', async () => {
+    mockRequireRole.mockResolvedValue(undefined as never);
+    mockObtenerPorId.mockRejectedValue(new ServiceError('INVALID_STATE', 'Trabajador eliminado'));
+    const result = await agregarHijoAction('t1', {} as never);
+    expect(result).toEqual({ ok: false, error: 'Trabajador eliminado', code: 'INVALID_STATE' });
+  });
+
+  it('TA-NEW4 eliminarHijoAction ServiceError hijo no encontrado → { ok: false, error, code }', async () => {
+    mockRequireRole.mockResolvedValue(undefined as never);
+    mockHijoFindUnique.mockResolvedValue(null as never);
+    const result = await eliminarHijoAction('h99');
+    expect(result).toEqual({ ok: false, error: 'Hijo no encontrado: h99.', code: 'NOT_FOUND' });
   });
 });
