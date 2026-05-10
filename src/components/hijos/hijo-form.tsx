@@ -2,6 +2,7 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useTransition } from 'react';
+import { toast } from 'sonner';
 import { z } from 'zod';
 import { CrearHijoSchema, ActualizarHijoSchema } from '@/lib/validations/hijo';
 import type { CrearHijoInput, ActualizarHijoInput } from '@/lib/services/trabajador.service';
@@ -63,6 +64,7 @@ export function HijoForm(props: Props) {
         result = await actualizarHijoAction(props.hijoId, data as ActualizarHijoInput);
       }
       if (result.ok) {
+        toast.success(props.modo === 'crear' ? 'Hijo agregado' : 'Hijo actualizado');
         props.onDone();
       } else {
         setError('root', { message: result.error });
