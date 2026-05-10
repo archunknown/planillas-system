@@ -69,6 +69,7 @@ export function EmpresaTable({ empresas, isAdmin }: Props) {
                           size="sm"
                           variant="outline"
                           render={<Link href={`/empresas/${empresa.id}`} />}
+                          nativeButton={false}
                         >
                           Editar
                         </Button>

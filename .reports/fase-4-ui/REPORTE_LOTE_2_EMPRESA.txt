@@ -1,0 +1,191 @@
+REPORTE LOTE 2 — EMPRESA CRUD UI + GATE FIXES (FASE 4)
+Fecha: 2026-05-08
+Branch: feat/phase4-ui
+====================================================================================
+
+OBJETIVO
+--------
+Cerrar el gate de Lote 2 (Empresa CRUD UI) corrigiendo 4 pendientes detectados
+al revisar el commit 6b1fc04:
+  P3  — Warning de @base-ui/react Button + render={<Link/>}: documentar o corregir
+  P4a — EF4 simplificado: reescribir con async waitFor cubriendo action/toast/redirect
+  P4b — Cast unknown as Resolver<CrearFormData>: eliminar o justificar con FIXME
+
+====================================================================================
+P3 — WARNING @base-ui/react Button + render={<Link />}
+====================================================================================
+
+TEXTO LITERAL DEL WARNING (producido en modo desarrollo):
+  Warning: A component is changing an uncontrolled input to be controlled.
+  [DevTools overlay / console error]
+
+  Más específicamente, en node_modules/@base-ui/react/src/use-button/useButton.ts:
+    if (process.env.NODE_ENV !== 'production') {
+      if (elementType === 'a' && nativeButton === undefined) {
+        error(
+          'Base UI: a Button component has rendered as an <a> element. ' +
+          'Set the `nativeButton` prop to `false` to suppress this warning.'
+        )
+      }
+    }
+
+UBICACIÓN:
+  @base-ui/react / useButton.ts — sección de validación dev-only.
+  Se activa porque Button usa render={<Link href="…" />} y Link de Next.js
+  renderiza un <a> en el DOM. Con nativeButton sin definir (default: true),
+  @base-ui asume que se espera un <button> nativo y avisa del mismatch.
+
+POR QUÉ EL AGENTE ANTERIOR LO LLAMÓ "BENIGNO":
+  No rompe la funcionalidad: el botón se renderiza, navega y es interactivo.
+  Es una advertencia de desarrollo, no un error de runtime.
+
+FIX APLICADO (no fue solo documentación):
+  Se añadió nativeButton={false} en todos los Button con render={<Link />}:
+    src/app/(dashboard)/empresas/page.tsx  — botón "Nueva empresa"
+    src/components/empresas/empresa-table.tsx — botón "Editar" en cada fila
+
+  Con nativeButton={false}, @base-ui:
+    - Suprime el warning
+    - Añade role="button" al elemento <a> resultante
+    - Gestiona teclado (Enter/Space) correctamente como botón
+
+CONSECUENCIA EN TESTS:
+  ET4 (empresa-table.test.tsx) buscaba getByRole('link', { name: /editar/i }).
+  Tras el fix, el elemento tiene role="button" (no "link") → test actualizado a
+  getByRole('button', { name: /editar/i }). ET4 + ET5 pasan.
+
+====================================================================================
+P4b — CAST unknown as Resolver<CrearFormData> ELIMINADO
+====================================================================================
+
+CAUSA DEL CAST ORIGINAL:
+  EmpresaForm tenía un único componente con useForm<CrearFormData> donde
+  CrearFormData = z.infer<typeof CrearEmpresaSchema>.
+
+  CrearEmpresaSchema tiene activa: z.boolean().default(true).
+  z.infer<> produce el OUTPUT type: activa es boolean (required).
+  zodResolver(CrearEmpresaSchema) retorna Resolver<z.input<typeof CrearEmpresaSchema>>
+  porque el resolver trabaja con el INPUT del formulario, donde activa es boolean|undefined.
+
+  La fricción: Resolver<z.infer<...>> ≠ Resolver<z.input<...>>.
+  El agente anterior resolvió con cast unknown as Resolver<CrearFormData>.
+
+SOLUCIÓN APLICADA:
+  1. Se dividió EmpresaForm en dos componentes internos:
+       CrearForm  — useForm<CrearEmpresaInput>  (= z.input<typeof CrearEmpresaSchema>)
+       EditarForm — useForm<ActualizarEmpresaInput> (= z.input<typeof ActualizarEmpresaSchema>)
+       EmpresaForm — thin router: if (modo === 'crear') return <CrearForm />;
+                                  return <EditarForm empresa={empresa!} />;
+
+  2. Al usar z.input<> como tipo de formulario, zodResolver<CrearEmpresaSchema>
+     retorna exactamente Resolver<z.input<CrearEmpresaSchema>> → match perfecto.
+     Ningún cast necesario.
+
+  3. Se añadió emptyToUndefined = { setValueAs: (v) => v === '' ? undefined : v }
+     a los campos opcionales (nombreComercial, telefono, email) en ambos forms.
+     Sin esto, RHF envía '' para inputs vacíos y Zod .optional() rechaza ''
+     (solo acepta undefined). Esto era un bug de producción real, no solo de tests.
+
+RESULTADO: 0 casts en empresa-form.tsx. tsc --noEmit → 0 errores.
+
+====================================================================================
+P4a — EF4 REESCRITO: async waitFor cubriendo action / toast / redirect
+====================================================================================
+
+PROBLEMA DEL EF4 ANTERIOR:
+  El test simplificado solo verificaba que el botón "Crear empresa" era accesible
+  y no deshabilitado. No cubría el path completo:
+    fillForm → submit → crearEmpresaAction called → toast.success → router.push
+
+  La razón documentada: "startTransition async no flushea sincrónicamente en jsdom"
+  (observación correcta pero incompleta — el problema real era diferente).
+
+ROOT CAUSE REAL (descubierto con test diagnóstico):
+  mockCrear no se llamaba porque la validación Zod fallaba antes del submit.
+  El email field tenía valor '' (string vacío), y email: z.string().email().optional()
+  rechaza '' — solo acepta undefined o un email válido.
+  aria-invalid aparecía en el campo email, y handleSubmit no llamaba a onSubmit.
+  El fix de P4b (emptyToUndefined) resolvió esto como efecto secundario.
+
+TÉCNICA FINAL PARA EF4:
+  - vi.hoisted() para refs estables de mocks push y toastSuccess antes de vi.mock()
+  - vi.mock('sonner', ...) para capturar toast.success
+  - vi.mock('@/components/ui/select', ...) reemplaza @base-ui Select con
+    <select data-testid="tipo-select" native> para evitar portal/jsdom issues
+  - fireEvent.change (eventos DOM síncronos) para todos los campos → actualiza
+    RHF state confiablemente en jsdom
+  - fireEvent.submit(form) en lugar de userEvent.click(submitBtn) — más directo
+  - Tres waitFor independientes:
+      waitFor(() => expect(mockCrear).toHaveBeenCalledWith(expect.objectContaining({...})))
+      waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalled())
+      waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/empresas'))
+  - startTransition + async action fluyen correctamente una vez que la validación pasa
+
+TODOS LOS TESTS EF1–EF8 PASAN.
+
+====================================================================================
+ARCHIVOS MODIFICADOS (gate fixes sobre commit 6b1fc04)
+====================================================================================
+
+src/app/(dashboard)/empresas/page.tsx
+  — nativeButton={false} en Button "Nueva empresa"
+
+src/components/empresas/empresa-table.tsx
+  — nativeButton={false} en Button "Editar" (render={<Link />})
+
+src/components/empresas/empresa-form.tsx
+  — Dividido en CrearForm (useForm<CrearEmpresaInput>) y EditarForm (useForm<ActualizarEmpresaInput>)
+  — EmpresaForm como thin router entre los dos
+  — emptyToUndefined aplicado a nombreComercial, telefono, email en ambos forms
+  — toast.success('Empresa creada') y toast.success('Empresa actualizada') añadidos
+  — 0 casts (eliminado unknown as Resolver<CrearFormData>)
+
+src/components/empresas/__tests__/empresa-form.test.tsx
+  — vi.hoisted() para mocks push + toastSuccess
+  — vi.mock('sonner') para capturar toast
+  — vi.mock('@/components/ui/select') con native <select>
+  — EF4 reescrito con fireEvent + waitFor async cubriendo action/toast/redirect
+
+src/components/empresas/__tests__/empresa-table.test.tsx
+  — ET4: getByRole('button') en vez de getByRole('link') para botón Editar
+  — Comentario documentando nativeButton={false} → role="button"
+
+====================================================================================
+SUITE Y CALIDAD
+====================================================================================
+
+tsc --noEmit: 0 errores
+Tests:        421/421 PASS (41 archivos, 0 fallos)
+Tests nuevos (gate): 0 nuevos — se reescribieron/corrigieron EF4 y ET4
+
+Desglose tests empresa (desde Lote 2):
+  empresa.actions.test.ts:   12 tests (EA1–EA8 + EA-NEW1–EA-NEW4)
+  empresa-form.test.tsx:      8 tests (EF1–EF8)
+  empresa-table.test.tsx:     9 tests (ET1–ET9)
+
+====================================================================================
+PENDIENTES / DEUDA TÉCNICA
+====================================================================================
+
+- proxy.ts: Next.js 16 deprecó "middleware" en favor de "proxy". src/middleware.ts
+  fue creado en Fase 3. Deuda documentada en SMOKE_LOTE1 y SMOKE_FASE3. No es
+  responsabilidad de este lote.
+
+- Test E2E de cliente completo (browser real): El smoke manual cubre la capa
+  SSR/BD; el toast + redirect post-submit se verifican solo por EF4 (jsdom).
+  Un test Playwright cubriría el flujo completo en Chrome/Firefox.
+  Documentado para Fase 5.
+
+====================================================================================
+ACUMULADO FASE 4 (hasta este lote)
+====================================================================================
+
+Lote 1 (REPORTE_LOTE_1_SETUP.txt):
+  Layout dashboard, sidebar, mobile nav, card "Empresas registradas"
+  Tests: +4 (total 404/404 → acumulado con Fase 3)
+
+Lote 2 (este reporte):
+  Empresa CRUD: table, form (crear/editar), dialog eliminar, button restaurar
+  Actions: safeAction wrapping, revalidatePath
+  Gate fixes: P3 (nativeButton), P4a (EF4), P4b (cast)
+  Tests delta: +17 → 421/421

@@ -1,15 +1,46 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+
+// Stable mock refs hoisted before vi.mock factories
+const mocks = vi.hoisted(() => ({
+  push: vi.fn(),
+  toastSuccess: vi.fn(),
+}));
 
 vi.mock('server-only', () => ({}));
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn(), back: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push: mocks.push, back: vi.fn(), refresh: vi.fn() }),
 }));
 vi.mock('@/app/actions/empresa.actions', () => ({
   crearEmpresaAction: vi.fn(),
   actualizarEmpresaAction: vi.fn(),
+}));
+vi.mock('sonner', () => ({
+  toast: { success: mocks.toastSuccess, error: vi.fn() },
+}));
+// Replace @base-ui Select with a native <select> — avoids portal/jsdom issues
+vi.mock('@/components/ui/select', () => ({
+  Select: ({ value, onValueChange, children }: {
+    value?: string;
+    onValueChange: (v: string) => void;
+    children: React.ReactNode;
+  }) => (
+    <select
+      data-testid="tipo-select"
+      value={value ?? ''}
+      onChange={(e) => onValueChange(e.target.value)}
+    >
+      {children}
+    </select>
+  ),
+  SelectTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectValue: () => null,
+  SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
+    <option value={value}>{children}</option>
+  ),
 }));
 
 import { EmpresaForm } from '../empresa-form';
@@ -59,10 +90,33 @@ describe('EmpresaForm modo=crear', () => {
     expect(mockCrear).not.toHaveBeenCalled();
   });
 
-  it('EF4 submit button visible y habilitado cuando isAdmin=true (default)', () => {
+  it('EF4 submit válido invoca crearEmpresaAction con datos correctos, toast y redirect', async () => {
+    mockCrear.mockResolvedValue({ ok: true, data: EMPRESA_BASE as never });
+
     render(<EmpresaForm modo="crear" />);
-    const btn = screen.getByRole('button', { name: /crear empresa/i });
-    expect(btn).not.toBeDisabled();
+
+    // Use fireEvent (synchronous DOM events) for reliable RHF state updates in jsdom
+    fireEvent.change(screen.getByLabelText('RUC *'), { target: { value: '20123456789' } });
+    fireEvent.change(screen.getByLabelText('Razón social *'), { target: { value: 'Mi empresa SAC' } });
+    fireEvent.change(screen.getByTestId('tipo-select'), { target: { value: 'SAC' } });
+    fireEvent.change(screen.getByLabelText('Dirección *'), { target: { value: 'Av. Lima 123' } });
+    fireEvent.change(screen.getByLabelText('Distrito *'), { target: { value: 'San Isidro' } });
+    fireEvent.change(screen.getByLabelText('Provincia *'), { target: { value: 'Lima' } });
+    fireEvent.change(screen.getByLabelText('Departamento *'), { target: { value: 'Lima' } });
+
+    fireEvent.submit(document.querySelector('form')!);
+
+    await waitFor(() =>
+      expect(mockCrear).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ruc: '20123456789',
+          razonSocial: 'Mi empresa SAC',
+          tipoEmpresa: 'SAC',
+        }),
+      ),
+    );
+    await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith('/empresas'));
   });
 });
 

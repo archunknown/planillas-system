@@ -56,7 +56,8 @@ describe('EmpresaTable', () => {
 
   it('ET4 muestra botón Editar y Eliminar para empresa activa (admin)', () => {
     render(<EmpresaTable empresas={[mkEmpresa() as never]} isAdmin={true} />);
-    expect(screen.getByRole('link', { name: /editar/i })).toBeInTheDocument();
+    // nativeButton={false} → @base-ui adds role="button" to the <a> element
+    expect(screen.getByRole('button', { name: /editar/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /eliminar/i })).toBeInTheDocument();
   });
 

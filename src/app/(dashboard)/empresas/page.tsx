@@ -16,7 +16,7 @@ export default async function EmpresasPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Empresas</h1>
         {isAdmin && (
-          <Button render={<Link href="/empresas/nueva" />} size="sm">
+          <Button render={<Link href="/empresas/nueva" />} size="sm" nativeButton={false}>
             Nueva empresa
           </Button>
         )}
