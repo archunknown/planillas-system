@@ -1,0 +1,298 @@
+REPORTE LOTE 4 — CONTRATO CRUD UI (FASE 4)
+Fecha: 2026-05-11
+Branch: feat/phase4-ui
+====================================================================================
+
+OBJETIVO
+--------
+Implementar UI de Contrato con:
+  1. Refactorizar contrato.actions.ts: safeAction + revalidatePath + ActionResult
+  2. Misma arquitectura de Lote 3: z.input<> para tipos de form, split CrearForm/EditarForm
+  3. Rutas: /contratos (filtrado por ?empresaId= y ?trabajadorId=),
+            /contratos/nuevo, /contratos/[id]
+  4. Componentes: ContratoForm (crear/editar), ContratoTable, CerrarContratoDialog,
+                  EliminarContratoDialog, RestaurarContratoButton
+  5. Tests: CF1-CF9, CT1-CT5, CC1-CC3, CA-NEW1–CA-NEW4
+  6. SMOKE_LOTE4.txt + este reporte
+  7. Confirmación de hotfix lote 3 (HS-MUT1/HS-MUT2): commit 8cbe8c5
+
+====================================================================================
+1. REFACTORIZACIÓN contrato.actions.ts
+====================================================================================
+
+CAMBIOS PRINCIPALES:
+  - Añadido import { revalidatePath } from 'next/cache'
+  - Añadido import { safeAction, ActionResult } from '@/lib/actions/result'
+  - Añadido import { z } from 'zod'
+  - Renombrado resolverEmpresaDeContrato → resolverContextoContrato
+    Retorna { empresaId: string; trabajadorId: string }
+    (trabajadorId necesario para revalidatePath en mutaciones de contrato)
+  - TODAS las funciones exportadas: safeAction(async () => {...})
+  - Tipos de entrada:
+      crearContratoAction: CrearContratoInput (ya es z.input<>)
+      actualizarContratoAction: z.input<typeof ActualizarContratoSchema>
+      cerrarContratoAction: z.input<typeof CerrarContratoSchema>
+      eliminarContratoAction / restaurarContratoAction: sin cambio de input
+  - UN cast por acción en la llamada al service:
+      contratoService.actualizar(id, input as ActualizarContratoInput)
+      contratoService.cerrarContrato(id, input as CerrarContratoInput)
+    Razón: z.coerce.date() en los schemas hace que fechaFin sea unknown
+    en z.input<>; el service llama schema.parse() internamente
+  - revalidatePath calls:
+      todas las acciones: /contratos + /contratos/${id} + /trabajadores/${trabajadorId}
+      crearContrato: /contratos + /trabajadores/${input.trabajadorId}
+
+TEST UPDATES (contrato.actions.test.ts):
+  - Añadido vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
+  - Añadido import ServiceError
+  - CA5-CA12: mock actualizado con { empresaId: 'e1', trabajadorId: 't1' }
+    (resolverContextoContrato ahora selecciona trabajadorId además de empresaId)
+  - CA5: assertion actualizada: select: { empresaId: true, trabajadorId: true }
+  - CA-NEW1: crearContratoAction ServiceError → { ok: false, error, code }
+  - CA-NEW2: actualizarContratoAction ServiceError → { ok: false, error, code }
+  - CA-NEW3: cerrarContratoAction ServiceError → { ok: false, error, code }
+  - CA-NEW4: eliminarContratoAction contrato null → { ok: false, error, code }
+  Todos los 16 tests pasan (CA1–CA12 + CA-NEW1–CA-NEW4).
+
+====================================================================================
+2. FRICCIÓN DE TIPOS: ZodEffects (.refine()) + z.coerce.date()
+====================================================================================
+
+PROBLEMA #1 (CrearContratoSchema es ZodEffects):
+  CrearContratoSchema usa .refine() → ZodEffects → .omit() no disponible.
+  No se puede crear CrearFormSchema = CrearContratoSchema.omit({ empresaId: true }).
+
+SOLUCIÓN: Se definió CrearFormSchema inline con los mismos campos pero:
+  - Sin trabajadorId/empresaId (son props del form)
+  - fechaInicio/fechaFin como z.string() (el input nativo envía strings)
+  - Sin refine() cross-field (manejado por el service al parsear)
+  - trabajadorId incluido en CrearFormSchema (como select del form)
+  At submit: { ...data, empresaId } as CrearContratoInput
+
+PROBLEMA #2 (z.coerce.date() → unknown en z.input<>):
+  ActualizarContratoSchema y CerrarContratoSchema tienen fechaFin/fechaFin: z.coerce.date()
+  z.input<typeof ...Schema>['fechaFin'] → unknown (Zod v4)
+  Las fechas del form son strings; el service llama schema.parse() y las coerce.
+
+SOLUCIÓN:
+  EditarFormSchema: fechaFin como z.string().optional()
+  CerrarFormSchema: fechaFin como z.string().min(1)
+  En los forms, emptyToUndefined para fechaFin opcional
+  At submit: sin cast en CerrarContratoDialog (string es asignable a unknown)
+             cast as ActualizarContratoInput en ContratoForm EditarForm
+
+PROBLEMA #3 (z.number() options en Zod v4):
+  En Zod v4, z.number({ invalid_type_error: '...' }) no es válido.
+  La opción correcta es { message: '...' } o simplemente z.number().
+  Solución: usar z.number().positive('mensaje') sin parámetro de constructor.
+
+CAMPOS CONDICIONALES:
+  watch('regimenLaboral') en CrearForm → mostrar/ocultar:
+    CONSTRUCCION_CIVIL: categoriaCC + zonaBonificacion
+    AGRARIO: recibeBETA checkbox
+  En EditarForm: regimenLaboral es inmutable (mostrado como texto),
+                 se usa contrato.regimenLaboral directamente (no watch).
+
+CAMPOS INMUTABLES EN EditarForm:
+  regimenLaboral y fechaInicio son inmutables (no en ActualizarContratoSchema.strict())
+  → Mostrados como texto, no como inputs del form.
+
+====================================================================================
+3. COMPONENTES
+====================================================================================
+
+CONTRATO:
+  src/components/contratos/contrato-form.tsx
+    - CrearFormSchema inline (incluye trabajadorId como <select> del form)
+    - EditarFormSchema inline (sin trabajadorId/empresaId/regimenLaboral/fechaInicio)
+    - CrearForm: watch('regimenLaboral') para campos condicionales
+    - EditarForm: inmutables como texto, canEdit deshabilita inputs
+    - setValueAs: asFloat para remuneracionBase, asInt para jornadaSemanal
+    - emptyToUndefined para fechaFin y zonaBonificacion
+    - native <select> para todos los enums (evita mocks en tests)
+    - toast.success('Contrato creado'/'actualizado')
+    - CrearForm redirect: /contratos?empresaId=${empresaId}&trabajadorId=${data.trabajadorId}
+
+  src/components/contratos/contrato-table.tsx
+    - Type: Contrato & { trabajador: Pick<Trabajador, 'apellidoPaterno'|...> }
+    - Badges: Activo / Cerrado (!activo) / Eliminado (eliminadoEn !== null)
+    - nativeButton={false} en Button Editar (render={<Link />})
+    - EliminarContratoDialog para no eliminados, RestaurarContratoButton para eliminados
+
+  src/components/contratos/cerrar-contrato-dialog.tsx
+    - Usa Dialog (no AlertDialog — tiene form adentro)
+    - CerrarFormSchema: fechaFin como z.string(), motivoCese como z.string()
+    - cerrarContratoAction(id, data) — sin cast (string asignable a unknown)
+    - toast.success('Contrato cerrado') + router.refresh()
+
+  src/components/contratos/eliminar-contrato-dialog.tsx
+    - Mismo patrón que EliminarTrabajadorDialog (AlertDialog)
+    - router.refresh() en lugar de router.push tras éxito
+
+  src/components/contratos/restaurar-contrato-button.tsx
+    - Igual que RestaurarEmpresaButton / RestaurarTrabajadorButton
+    - toast.success('Contrato restaurado')
+
+====================================================================================
+4. RUTAS
+====================================================================================
+
+  src/app/(dashboard)/contratos/page.tsx
+    - searchParams: Promise<{ empresaId?: string; trabajadorId?: string }>
+    - Sin empresaId → empty state "Selecciona una empresa..."
+    - Prisma directamente (no service) para include trabajador en un query
+    - canEdit: ADMIN || CONTADOR
+    - Button "Nuevo contrato" → /contratos/nuevo?empresaId=...&trabajadorId=...
+
+  src/app/(dashboard)/contratos/nuevo/page.tsx
+    - requireRole(['ADMIN', 'CONTADOR'])
+    - Sin empresaId → notFound()
+    - Carga trabajadores de la empresa (listarPorEmpresa, incluirEliminados: false)
+    - ContratoForm modo="crear" con pre-select de trabajadorId
+
+  src/app/(dashboard)/contratos/[id]/page.tsx
+    - await params (Next.js 16 async params)
+    - contratoService.obtenerPorId + ServiceError NOT_FOUND → notFound()
+    - CerrarContratoDialog visible si activo && !eliminadoEn
+    - ContratoForm modo="editar" canEdit=canEdit && !eliminadoEn
+    - EliminarContratoDialog / RestaurarContratoButton según estado
+
+NOTA SOBRE PRISMA EN PAGE:
+  ContratosPage usa prisma.contrato.findMany con include trabajador en lugar de
+  contratoService.listarPorEmpresa porque el service no incluye el join a trabajador.
+  Es suficiente para MVP; un futuro listarConTrabajador en el service es deuda técnica.
+
+====================================================================================
+5. TESTS
+====================================================================================
+
+  contrato.actions.test.ts (CA1–CA12 + CA-NEW1–CA-NEW4): 16 tests
+    CA1-CA12: existing + updated mocks para { empresaId, trabajadorId }
+    CA5: updated select assertion: { empresaId: true, trabajadorId: true }
+    CA-NEW1: ServiceError INVALID_STATE en crearContratoAction
+    CA-NEW2: ServiceError NOT_FOUND al resolver contrato
+    CA-NEW3: ServiceError INVALID_STATE en cerrarContratoAction
+    CA-NEW4: Contrato null → ServiceError NOT_FOUND en eliminarContratoAction
+
+  contrato-form.test.tsx (CF1–CF9): 9 tests
+    CF1: campo cargo visible en crear
+    CF2: botón "Crear contrato" visible
+    CF3: submit vacío → aria-invalid en cargo, acción no llamada
+    CF4: submit válido → crearContratoAction + toast + router.push
+         Técnica: fireEvent.change en todos los campos required + fireEvent.submit
+         setValueAs: remuneracionBase '1500' → 1500 (number)
+    CF5: trabajadorIdDefault pre-selecciona trabajador
+    CF6: regimenLaboral=CONSTRUCCION_CIVIL → Categoría CC visible
+    CF7: regimenLaboral=AGRARIO → recibeBETA checkbox visible
+    CF8: modo editar pre-rellena cargo
+    CF9: submit editar → actualizarContratoAction + toast + router.refresh
+
+  contrato-table.test.tsx (CT1–CT5): 5 tests
+    CT1: mensaje vacío
+    CT2: cargo y nombre trabajador renderizados
+    CT3: columna Acciones visible con canEdit=true
+    CT4: sin columna Acciones con canEdit=false
+    CT5: contrato eliminado → badge Eliminado + botón Restaurar
+
+  cerrar-contrato-dialog.test.tsx (CC1–CC3): 3 tests
+    CC1: botón "Cerrar contrato" visible
+    CC2: flujo completo → cerrarContratoAction + toast + refresh
+    CC3: submit vacío → aria-invalid, acción no llamada
+    Mock: vi.mock('@/components/ui/dialog') para evitar portal issues en jsdom
+
+====================================================================================
+ARCHIVOS CREADOS / MODIFICADOS
+====================================================================================
+
+MODIFICADOS:
+  src/app/actions/contrato.actions.ts
+    — safeAction + ActionResult + revalidatePath + z.input<> + resolverContextoContrato
+  src/app/actions/contrato.actions.test.ts
+    — vi.mock('next/cache') + CA5-CA12 mock update + CA-NEW1–CA-NEW4
+
+CREADOS:
+  src/components/contratos/contrato-form.tsx
+  src/components/contratos/contrato-table.tsx
+  src/components/contratos/cerrar-contrato-dialog.tsx
+  src/components/contratos/eliminar-contrato-dialog.tsx
+  src/components/contratos/restaurar-contrato-button.tsx
+  src/app/(dashboard)/contratos/page.tsx
+  src/app/(dashboard)/contratos/nuevo/page.tsx
+  src/app/(dashboard)/contratos/[id]/page.tsx
+  src/components/contratos/__tests__/contrato-form.test.tsx
+  src/components/contratos/__tests__/contrato-table.test.tsx
+  src/components/contratos/__tests__/cerrar-contrato-dialog.test.tsx
+  .reports/fase-4-ui/SMOKE_LOTE4.txt
+  .reports/fase-4-ui/REPORTE_LOTE_4_CONTRATO.txt
+
+====================================================================================
+SUITE Y CALIDAD
+====================================================================================
+
+tsc --noEmit: 0 errores
+Tests:        463/463 PASS (47 archivos, 0 fallos)
+Tests nuevos: +21 (desde hotfix lote 3: base 442)
+
+Desglose tests contrato (Lote 4):
+  contrato.actions.test.ts:          16 tests (CA1–CA12 + CA-NEW1–CA-NEW4)  → +4
+  contrato-form.test.tsx:             9 tests (CF1–CF9)                      → +9
+  contrato-table.test.tsx:            5 tests (CT1–CT5)                      → +5
+  cerrar-contrato-dialog.test.tsx:    3 tests (CC1–CC3)                      → +3
+  Total Lote 4 nuevos:               21 tests
+
+====================================================================================
+CONFIRMACIÓN HOTFIX LOTE 3
+====================================================================================
+
+  Commit: 8cbe8c5 — test(ui): cubrir flujo de mutación de hijos en HijosSection
+  Cambios hotfix:
+    - Añadido HS-MUT1 (agregar hijo: inline form → acción + toast + refresh)
+    - Añadido HS-MUT2 (eliminar hijo: dialog trigger → action → refresh)
+    - Añadido toast.success en HijoForm (was missing from lote 3)
+    - Mock de @/components/ui/alert-dialog en hijos-section.test.tsx
+  Tests en hotfix: +2 → base 442
+
+====================================================================================
+PENDIENTES / DEUDA TÉCNICA
+====================================================================================
+
+- listarConTrabajador en contrato.service: ContratosPage usa Prisma directamente
+  porque el service no incluye el join. Suficiente para MVP.
+
+- Campos cross-field en ContratoForm (fechaFin > fechaInicio): el form no valida
+  esta regla (sin .refine() en CrearFormSchema para simplificar). El service
+  valida correctamente. Un futuro .refine() en el form mejoraría la UX.
+
+- Test E2E de cliente completo (Playwright): cerrarContratoAction, eliminarContratoAction
+  verificados solo por jsdom. Documentado para Fase 5.
+
+- Paginación en ContratoTable: no implementada (suficiente para MVP).
+
+====================================================================================
+ACUMULADO FASE 4 (hasta este lote)
+====================================================================================
+
+Lote 1 (REPORTE_LOTE_1_SETUP.txt):
+  Layout dashboard, sidebar, mobile nav, card "Empresas registradas"
+  Tests: +4 → 404/404
+
+Lote 2 (REPORTE_LOTE_2_EMPRESA.txt):
+  Empresa CRUD: table, form (crear/editar), dialog eliminar, button restaurar
+  Tests delta: +17 → 421/421
+
+Lote 3 (REPORTE_LOTE_3_TRABAJADOR.txt):
+  Trabajador CRUD: form (crear/editar), table, dialogs
+  Hijo CRUD: section, form, row, dialog
+  Actions refactor: safeAction + revalidatePath + z.input<> + resolverContextoHijo
+  Tests delta: +19 → 440/440
+
+Hotfix Lote 3 (commit 8cbe8c5):
+  HS-MUT1/HS-MUT2: flujos de mutación de hijos
+  HijoForm: toast.success añadido
+  Tests delta: +2 → 442/442
+
+Lote 4 (este reporte):
+  Contrato CRUD: form (crear/editar), table, dialogs (cerrar/eliminar)
+  Actions refactor: safeAction + revalidatePath + z.input<> + resolverContextoContrato
+  Solución ZodEffects (.refine()) → inline CrearFormSchema
+  Tests delta: +21 → 463/463
