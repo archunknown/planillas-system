@@ -16,6 +16,7 @@ const baseContrato = {
 describe('CrearContratoSchema', () => {
   it('acepta input mínimo válido con defaults', () => {
     const r = CrearContratoSchema.parse(baseContrato);
+    // FIXME(phase3-cleanup): cast por tipo OUTPUT vs Prisma. Revisar al refactorizar tests.
     expect((r as Record<string, unknown>).activo).toBeUndefined(); // activo no es campo de input
     expect(r.jornadaSemanal).toBe(48);
     expect(r.categoriaCC).toBe('NINGUNA');

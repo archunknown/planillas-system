@@ -1,0 +1,248 @@
+REPORTE LOTE 3 — TRABAJADOR + HIJOS CRUD UI (FASE 4)
+Fecha: 2026-05-10
+Branch: feat/phase4-ui
+====================================================================================
+
+OBJETIVO
+--------
+Implementar UI de Trabajador + Hijos con:
+  1. Refactorizar trabajador.actions.ts: safeAction + revalidatePath + ActionResult
+  2. Aplicar lecciones de Lote 2 desde el inicio: z.input<> para tipos de form,
+     split CrearForm/EditarForm, emptyToUndefined
+  3. Rutas: /trabajadores, /trabajadores/nuevo, /trabajadores/[id] (Tabs)
+  4. Componentes trabajador: TrabajadorForm, TrabajadorTable, dialogs
+  5. Componentes hijo: HijosSection, HijoForm, HijoRow, EliminarHijoDialog
+  6. Tests: TF1-TF6, TT1-TT5, HS1-HS4 + TA-NEW1–TA-NEW4
+
+====================================================================================
+1. REFACTORIZACIÓN trabajador.actions.ts
+====================================================================================
+
+CAMBIOS PRINCIPALES:
+  - Añadido import { revalidatePath } from 'next/cache'
+  - Añadido import { safeAction, ActionResult } from '@/lib/actions/result'
+  - Añadido import { z } from 'zod' + imports de schemas
+  - Renombrado resolverEmpresaDeHijo → resolverContextoHijo
+    Retorna { empresaId: string; trabajadorId: string }
+    (trabajadorId necesario para revalidatePath en eliminar/actualizar hijo)
+  - TODAS las funciones exportadas: safeAction(async () => {...})
+  - Tipos de entrada cambiados a z.input<typeof ...Schema>
+  - UN cast por acción en la llamada al service:
+      trabajadorService.crear(input as CrearTrabajadorInput)
+    Razón: z.coerce.date() en CrearTrabajadorSchema hace que fechaNacimiento
+    sea unknown en z.input<>; el service llama schema.parse() internamente
+  - revalidatePath calls:
+      crear/actualizar/eliminar/restaurar trabajador: /trabajadores + /trabajadores/${id}
+      crear/actualizar/eliminar hijo: /trabajadores/${trabajadorId}
+
+crearTrabajadorConHijosAction NO necesita cast porque CrearTrabajadorConHijosInput
+ya es z.input<> (ver validaciones).
+
+TEST UPDATES (trabajador.actions.test.ts):
+  - Añadido vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }))
+  - Añadido import ServiceError
+  - TA13/TA14/TA15: mock de hijo actualizado con trabajadorId:
+      { trabajadorId: 't1', trabajador: { empresaId: 'e1' } }
+    (resolverContextoHijo ahora selecciona trabajadorId además de empresaId)
+  - TA-NEW1: crearTrabajadorAction ServiceError → { ok: false, error, code }
+  - TA-NEW2: actualizarTrabajadorAction ServiceError → { ok: false, error, code }
+  - TA-NEW3: agregarHijoAction ServiceError → { ok: false, error, code }
+  - TA-NEW4: eliminarHijoAction hijo null → { ok: false, error, code }
+  Todos los 19 tests pasan (TA1–TA15 + TA-NEW1–TA-NEW4).
+
+====================================================================================
+2. FORMULARIO TRABAJADOR — FRICCIÓN DE TIPOS z.input<> / z.coerce.date()
+====================================================================================
+
+PROBLEMA DETECTADO (igual que Lote 2, resuelto sin cast):
+  CrearTrabajadorSchema tiene fechaNacimiento: z.coerce.date()
+  z.input<typeof CrearTrabajadorSchema>['fechaNacimiento'] → unknown (Zod v4)
+  Si se usa CrearTrabajadorSchema directamente como form schema,
+  zodResolver valida empresaId también (field no registrado en el form) → falla.
+
+SOLUCIÓN APLICADA:
+  1. Se creó CrearFormSchema = CrearTrabajadorSchema.omit({ empresaId: true })
+     empresaId es prop del componente, no campo del formulario
+  2. useForm<z.input<typeof CrearFormSchema>>({ resolver: zodResolver(CrearFormSchema) })
+     → ningún cast necesario para el form
+  3. En onSubmit: { ...data, empresaId } as z.input<typeof CrearTrabajadorSchema>
+     → cast justificado: el action llama schema.parse() internamente
+
+  Para EditarForm: useForm<z.input<typeof ActualizarTrabajadorSchema>>
+  defaultValues.fechaNacimiento = trabajador.fechaNacimiento.toISOString().split('T')[0]
+  TypeScript: string → unknown, sin problema
+
+CAMPO SEXO: Nativo <select> en vez del @base-ui Select
+  Razón: sexo tiene solo 2 opciones (M/F), el select nativo funciona en
+  jsdom sin mock adicional, y simplifica los tests (TF4 usa fireEvent.change).
+
+====================================================================================
+3. COMPONENTES
+====================================================================================
+
+TRABAJADOR:
+  src/components/trabajadores/trabajador-form.tsx
+    - CrearFormSchema = CrearTrabajadorSchema.omit({ empresaId: true })
+    - CrearForm (useForm<z.input<typeof CrearFormSchema>>)
+    - EditarForm (useForm<z.input<typeof ActualizarTrabajadorSchema>>)
+    - TrabajadorForm: thin router entre los dos
+    - emptyToUndefined en direccion, telefono, email, estadoCivil
+    - sexo: native <select> (no @base-ui Select)
+    - toast.success('Trabajador creado') / toast.success('Trabajador actualizado')
+    - redirect: /trabajadores?empresaId=${empresaId}
+
+  src/components/trabajadores/trabajador-table.tsx
+    - canEdit (admin/contador) en vez de isAdmin
+    - nativeButton={false} en Button Editar (render={<Link />})
+    - Badge: Activo / Eliminado (sin Inactiva — Trabajador no tiene campo activa)
+
+  src/components/trabajadores/eliminar-trabajador-dialog.tsx
+    - Mismo patrón que EliminarEmpresaDialog
+    - router.refresh() en lugar de router.push tras éxito
+
+  src/components/trabajadores/restaurar-trabajador-button.tsx
+    - Igual que RestaurarEmpresaButton
+
+HIJO:
+  src/components/hijos/hijo-form.tsx
+    - Props tipadas con discriminated union (modo: 'crear' | 'editar')
+    - z.input<typeof CrearHijoSchema/ActualizarHijoSchema> como form type
+    - fechaNacimiento: input type="date"
+    - emptyToUndefined para dni (opcional)
+    - onDone() callback (no router.push — lo maneja HijosSection)
+
+  src/components/hijos/hijo-row.tsx
+    - Estado local editing: boolean
+    - Modo viewing: nombres + fecha + dni + [Editar btn, EliminarHijoDialog]
+    - Modo editing: HijoForm inline + onDone → setEditing(false) + onDone del padre
+
+  src/components/hijos/eliminar-hijo-dialog.tsx
+    - Mismo patrón que EliminarEmpresaDialog
+    - onDone() callback en lugar de router.refresh() directo
+
+  src/components/hijos/hijos-section.tsx
+    - Estado local showAddForm: boolean
+    - router.refresh() tras cualquier mutación exitosa
+    - HijoRow con onDone={() => router.refresh()}
+
+====================================================================================
+4. RUTAS
+====================================================================================
+
+  src/app/(dashboard)/trabajadores/page.tsx
+    - searchParams: Promise<{ empresaId?: string }>
+    - Sin empresaId → empty state "Selecciona una empresa..."
+    - Con empresaId → listarPorEmpresa(empresaId, { incluirEliminados: true })
+    - canEdit: rol === 'ADMIN' || rol === 'CONTADOR'
+    - Button "Nuevo trabajador" → /trabajadores/nuevo?empresaId=${empresaId}
+
+  src/app/(dashboard)/trabajadores/nuevo/page.tsx
+    - requireRole(['ADMIN', 'CONTADOR'])
+    - Sin empresaId → notFound()
+    - TrabajadorForm modo="crear" empresaId={empresaId}
+
+  src/app/(dashboard)/trabajadores/[id]/page.tsx
+    - await params (Next.js 16 async params)
+    - obtenerPorId + listarHijos en Promise.all
+    - ServiceError 'NOT_FOUND' → notFound()
+    - Tabs: "Datos" → TrabajadorForm modo=editar
+    -        "Hijos (N)" → HijosSection
+    - canEdit = ADMIN || CONTADOR
+    - HijosSection.canEdit = canEdit && !trabajador.eliminadoEn
+
+====================================================================================
+5. TESTS
+====================================================================================
+
+  trabajador-form.test.tsx (TF1–TF6): 6 tests
+    TF1: campo DNI visible en modo crear
+    TF2: botón "Crear trabajador" visible
+    TF3: submit vacío → aria-invalid, action no llamada
+    TF4: submit válido → mockCrear + toastSuccess + push('/trabajadores?empresaId=e1')
+         Técnica: fireEvent.change para todos los campos + fireEvent.submit
+    TF5: modo editar pre-rellena apellidoPaterno
+    TF6: botón deshabilitado cuando canEdit=false
+
+  trabajador-table.test.tsx (TT1–TT5): 5 tests
+    TT1: mensaje vacío
+    TT2: DNI y apellidos+nombres renderizados
+    TT3: columna Acciones visible solo con canEdit=true
+    TT4: botones Editar (role="button" por nativeButton={false}) + Eliminar
+    TT5: botón Restaurar para trabajador eliminado
+
+  hijos-section.test.tsx (HS1–HS4): 4 tests
+    HS1: nombre de hijo visible
+    HS2: "Sin hijos registrados." cuando lista vacía
+    HS3: botón "Agregar hijo" visible cuando canEdit=true
+    HS4: botón "Agregar hijo" oculto cuando canEdit=false
+
+====================================================================================
+ARCHIVOS CREADOS / MODIFICADOS
+====================================================================================
+
+MODIFICADOS:
+  src/app/actions/trabajador.actions.ts
+    — safeAction + ActionResult + revalidatePath + z.input<> + resolverContextoHijo
+  src/app/actions/trabajador.actions.test.ts
+    — vi.mock('next/cache') + TA13/14/15 mock update + TA-NEW1–TA-NEW4
+
+CREADOS:
+  src/components/trabajadores/trabajador-form.tsx
+  src/components/trabajadores/trabajador-table.tsx
+  src/components/trabajadores/eliminar-trabajador-dialog.tsx
+  src/components/trabajadores/restaurar-trabajador-button.tsx
+  src/components/hijos/hijo-form.tsx
+  src/components/hijos/hijo-row.tsx
+  src/components/hijos/eliminar-hijo-dialog.tsx
+  src/components/hijos/hijos-section.tsx
+  src/app/(dashboard)/trabajadores/page.tsx
+  src/app/(dashboard)/trabajadores/nuevo/page.tsx
+  src/app/(dashboard)/trabajadores/[id]/page.tsx
+  src/components/trabajadores/__tests__/trabajador-form.test.tsx
+  src/components/trabajadores/__tests__/trabajador-table.test.tsx
+  src/components/hijos/__tests__/hijos-section.test.tsx
+  .reports/fase-4-ui/SMOKE_LOTE3.txt
+  .reports/fase-4-ui/REPORTE_LOTE_3_TRABAJADOR.txt
+
+====================================================================================
+SUITE Y CALIDAD
+====================================================================================
+
+tsc --noEmit: 0 errores
+Tests:        440/440 PASS (44 archivos, 0 fallos)
+Tests nuevos: +19 (15 componentes + 4 TA-NEW actions)
+
+Desglose tests trabajador/hijo (desde Lote 3):
+  trabajador.actions.test.ts:   19 tests (TA1–TA15 + TA-NEW1–TA-NEW4)
+  trabajador-form.test.tsx:      6 tests (TF1–TF6)
+  trabajador-table.test.tsx:     5 tests (TT1–TT5)
+  hijos-section.test.tsx:        4 tests (HS1–HS4)
+
+====================================================================================
+PENDIENTES / DEUDA TÉCNICA
+====================================================================================
+
+- Test E2E de cliente completo (Playwright): toast + redirect + router.refresh()
+  verificados solo por jsdom (TF4/HS tests). Documentado para Fase 5.
+
+- Paginación en TrabajadorTable: listarPorEmpresa devuelve total pero la UI
+  no implementa paginación. Suficiente para MVP; se puede agregar en Lote 5+.
+
+====================================================================================
+ACUMULADO FASE 4 (hasta este lote)
+====================================================================================
+
+Lote 1 (REPORTE_LOTE_1_SETUP.txt):
+  Layout dashboard, sidebar, mobile nav, card "Empresas registradas"
+  Tests: +4 → 404/404
+
+Lote 2 (REPORTE_LOTE_2_EMPRESA.txt):
+  Empresa CRUD: table, form (crear/editar), dialog eliminar, button restaurar
+  Gate fixes: P3 (nativeButton), P4a (EF4), P4b (cast)
+  Tests delta: +17 → 421/421
+
+Lote 3 (este reporte):
+  Trabajador CRUD: form (crear/editar), table, dialogs
+  Hijo CRUD: section, form, row, dialog
+  Actions refactor: safeAction + revalidatePath + z.input<> + resolverContextoHijo
+  Tests delta: +19 → 440/440

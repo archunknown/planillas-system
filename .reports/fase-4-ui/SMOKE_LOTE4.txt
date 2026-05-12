@@ -1,0 +1,129 @@
+SMOKE TEST LOTE 4 — Contrato CRUD UI
+Fecha: 2026-05-11
+Servidor: http://localhost:3000 (Next.js 16.2.3 Turbopack)
+Rama: feat/phase4-ui
+
+== RESULTADO GENERAL: PASS ==
+
+Método de verificación:
+  Pasos a–c: curl HTTP (navegación SSR, respuesta RSC)
+  Pasos d–h: curl + psql (setup de datos, render con datos reales)
+  Pasos i–k: SQL directo (psql) para operaciones de escritura
+
+--- a) SERVER UP ---
+Procedimiento:
+  curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/
+
+Resultado:
+  HTTP 307 → redirect a /login (sin sesión)
+  ✓ Servidor responde
+
+--- b) LOGIN ---
+Procedimiento:
+  GET  /api/auth/csrf  → csrfToken + cookie
+  POST /api/auth/callback/credentials
+       email=admin@estudio.pe password=Admin1234!
+
+Resultado:
+  HTTP 200
+  cookie de sesión establecida
+  ✓ Autenticación admin@estudio.pe / rol ADMIN
+
+--- c) /contratos sin empresaId — ESTADO VACÍO ---
+Procedimiento:
+  GET /contratos (sin ?empresaId=) con sesión admin
+
+Resultado:
+  HTTP 200
+  RSC contiene: "Selecciona una empresa para ver sus contratos."
+  ✓ ContratosPage renderiza empty state cuando no hay empresaId
+
+--- d) /contratos/nuevo sin empresaId — 404 ---
+Procedimiento:
+  GET /contratos/nuevo (sin ?empresaId=) con sesión admin
+
+Resultado:
+  HTTP 200 (RSC), contenido 404 de Next.js (notFound())
+  Contiene: "404" + "could not be found"
+  ✓ NuevoContratoPage retorna notFound() sin empresaId
+
+--- e) SETUP: insertar empresa + trabajador de prueba ---
+Procedimiento:
+  INSERT INTO empresas (id='smoke-c-e1', razonSocial='Contrato Smoke SAC', ...)
+  INSERT INTO trabajadores (id='smoke-c-t1', apellidoPaterno='Pérez', nombres='María Rosa', ...)
+
+Resultado:
+  1 empresa insertada ✓
+  1 trabajador insertado ✓
+
+--- f) /contratos?empresaId=smoke-c-e1 — TABLA con datos ---
+Procedimiento:
+  INSERT INTO contratos (id='smoke-c-c1', cargo='Programador', remuneracionBase=3500, ...)
+  GET /contratos?empresaId=smoke-c-e1 con sesión admin
+
+Resultado:
+  HTTP 200
+  RSC contiene ContratoTable con:
+    - cargo: "Programador"
+    - trabajador: "Pérez Quispe, María Rosa"
+    - remuneracionBase: 3500 (Decimal)
+    - activo: true
+    - canEdit: true
+  Botón "Nuevo contrato" presente (canEdit=true)
+  ✓ ContratosPage renderiza tabla con datos e include trabajador
+
+--- g) /contratos/nuevo?empresaId=smoke-c-e1&trabajadorId=smoke-c-t1 — FORMULARIO ---
+Procedimiento:
+  GET /contratos/nuevo?empresaId=smoke-c-e1&trabajadorId=smoke-c-t1 con sesión admin
+
+Resultado:
+  HTTP 200
+  Contiene: "Nuevo contrato"
+  ✓ NuevoContratoPage renderiza ContratoForm con trabajadores cargados
+
+--- h) /contratos/smoke-c-c1 — DETALLE ---
+Procedimiento:
+  GET /contratos/smoke-c-c1 con sesión admin
+
+Resultado:
+  HTTP 200
+  Contiene: "Programador" (cargo inmutable mostrado)
+  ✓ EditarContratoPage renderiza ContratoForm modo=editar
+
+--- i) /contratos/inexistente — 404 ---
+Procedimiento:
+  GET /contratos/nonexistent-id-xyz con sesión admin
+
+Resultado:
+  HTTP 200 (RSC), contenido 404 de Next.js
+  ✓ EditarContratoPage retorna notFound() cuando contrato no existe
+
+--- j) CLEANUP ---
+  DELETE FROM contratos WHERE id='smoke-c-c1'  → 1 fila eliminada ✓
+  DELETE FROM trabajadores WHERE id='smoke-c-t1' → 1 fila eliminada ✓
+  DELETE FROM empresas WHERE id='smoke-c-e1'    → 1 fila eliminada ✓
+
+== NOTA: CERRAR / ELIMINAR CONTRATO ==
+
+Las acciones client-side (cerrarContratoAction, eliminarContratoAction)
+no son verificables por curl. La cobertura existe en:
+  - CC2 (cerrar-contrato-dialog.test.tsx): cerrarContratoAction → toast + refresh
+  - CA8 (contrato.actions.test.ts): cerrarContratoAction happy path
+  - CA-NEW3: cerrarContratoAction ServiceError → ActionResult
+
+== RESUMEN ==
+
+Paso | Descripción                                      | Resultado
+-----|--------------------------------------------------|----------
+ a   | Servidor :3000 responde                          | PASS
+ b   | Login admin@estudio.pe                           | PASS
+ c   | /contratos sin empresaId empty state             | PASS
+ d   | /contratos/nuevo sin empresaId 404               | PASS
+ e   | Setup empresa + trabajador smoke                 | PASS
+ f   | /contratos?empresaId tabla con datos + Decimal   | PASS
+ g   | /contratos/nuevo?empresaId+trabajadorId form     | PASS
+ h   | /contratos/[id] detalle carga                    | PASS
+ i   | /contratos/nonexistent 404                       | PASS
+ j   | Cleanup                                          | PASS
+
+GATE: PASS — sin fallos

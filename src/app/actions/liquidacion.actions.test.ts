@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('server-only', () => ({}));
+vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('next/navigation', () => ({
   unauthorized: vi.fn(() => { throw new Error('UNAUTHORIZED'); }),
   forbidden: vi.fn(() => { throw new Error('FORBIDDEN'); }),
@@ -23,6 +24,7 @@ vi.mock('@/lib/prisma', () => ({
 import { requireRole, requireOwnership } from '@/lib/auth/guards';
 import * as liquidacionService from '@/lib/services/liquidacion.service';
 import { prisma } from '@/lib/prisma';
+import { ServiceError } from '@/lib/errors/service-error';
 import {
   calcularLiquidacionAction,
   anularLiquidacionAction,
@@ -77,6 +79,22 @@ describe('calcularLiquidacionAction', () => {
     await calcularLiquidacionAction({ contratoId: 'c1', fechaCese: new Date() } as never);
     expect(mockCalcular).toHaveBeenCalled();
   });
+
+  it('LA-NEW1 ServiceError INVALID_STATE → { ok: false, code }', async () => {
+    mockRequireRole.mockResolvedValue(undefined as never);
+    mockContratofindUnique.mockResolvedValue({ empresaId: 'e1' } as never);
+    mockRequireOwnership.mockResolvedValue(undefined as never);
+    mockCalcular.mockRejectedValue(new ServiceError('INVALID_STATE', 'Ya existe liquidación vigente'));
+    const result = await calcularLiquidacionAction({ contratoId: 'c1', fechaCese: new Date(), motivoCese: 'x' } as never);
+    expect(result).toEqual({ ok: false, error: 'Ya existe liquidación vigente', code: 'INVALID_STATE' });
+  });
+
+  it('LA-NEW2 contrato NOT_FOUND → { ok: false, code: NOT_FOUND }', async () => {
+    mockRequireRole.mockResolvedValue(undefined as never);
+    mockContratofindUnique.mockResolvedValue(null as never);
+    const result = await calcularLiquidacionAction({ contratoId: 'c1', fechaCese: new Date(), motivoCese: 'x' } as never);
+    expect(result).toEqual(expect.objectContaining({ ok: false, code: 'NOT_FOUND' }));
+  });
 });
 
 describe('anularLiquidacionAction', () => {
@@ -101,5 +119,14 @@ describe('anularLiquidacionAction', () => {
     mockRequireOwnership.mockRejectedValue(new Error('FORBIDDEN'));
     await expect(anularLiquidacionAction('l1', { motivoAnulacion: 'x' })).rejects.toThrow('FORBIDDEN');
     expect(mockAnular).not.toHaveBeenCalled();
+  });
+
+  it('LA-NEW3 ServiceError INVALID_STATE anular ya anulada → { ok: false, code }', async () => {
+    mockRequireRole.mockResolvedValue(undefined as never);
+    mockLiquidacionFindUnique.mockResolvedValue({ contratoId: 'c1', contrato: { empresaId: 'e1' } } as never);
+    mockRequireOwnership.mockResolvedValue(undefined as never);
+    mockAnular.mockRejectedValue(new ServiceError('INVALID_STATE', 'La liquidación ya fue anulada'));
+    const result = await anularLiquidacionAction('l1', { motivoAnulacion: 'x' });
+    expect(result).toEqual({ ok: false, error: 'La liquidación ya fue anulada', code: 'INVALID_STATE' });
   });
 });

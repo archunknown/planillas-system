@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ServiceError } from '@/lib/errors/service-error';
 
 vi.mock('server-only', () => ({}));
+vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('next/navigation', () => ({
   unauthorized: vi.fn(() => { throw new Error('UNAUTHORIZED'); }),
   forbidden: vi.fn(() => { throw new Error('FORBIDDEN'); }),
@@ -78,18 +80,21 @@ describe('crearContratoAction', () => {
 describe('actualizarContratoAction', () => {
   it('CA5 happy path — resuelve empresaId desde DB', async () => {
     mockRequireRole.mockResolvedValue(undefined as never);
-    mockContratofindUnique.mockResolvedValue({ empresaId: 'e1' } as never);
+    mockContratofindUnique.mockResolvedValue({ empresaId: 'e1', trabajadorId: 't1' } as never);
     mockRequireOwnership.mockResolvedValue(undefined as never);
     mockActualizar.mockResolvedValue(CONTRATO as never);
     await actualizarContratoAction('c1', {} as never);
-    expect(mockContratofindUnique).toHaveBeenCalledWith({ where: { id: 'c1' }, select: { empresaId: true } });
+    expect(mockContratofindUnique).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      select: { empresaId: true, trabajadorId: true },
+    });
     expect(mockRequireOwnership).toHaveBeenCalledWith('e1');
     expect(mockActualizar).toHaveBeenCalled();
   });
 
   it('CA6 ADMIN bypass ownership', async () => {
     mockRequireRole.mockResolvedValue(undefined as never);
-    mockContratofindUnique.mockResolvedValue({ empresaId: 'e1' } as never);
+    mockContratofindUnique.mockResolvedValue({ empresaId: 'e1', trabajadorId: 't1' } as never);
     mockRequireOwnership.mockResolvedValue(undefined as never);
     mockActualizar.mockResolvedValue(CONTRATO as never);
     await actualizarContratoAction('c1', {} as never);
@@ -98,7 +103,7 @@ describe('actualizarContratoAction', () => {
 
   it('CA7 CONTADOR sin ownership → forbidden', async () => {
     mockRequireRole.mockResolvedValue(undefined as never);
-    mockContratofindUnique.mockResolvedValue({ empresaId: 'e1' } as never);
+    mockContratofindUnique.mockResolvedValue({ empresaId: 'e1', trabajadorId: 't1' } as never);
     mockRequireOwnership.mockRejectedValue(new Error('FORBIDDEN'));
     await expect(actualizarContratoAction('c1', {} as never)).rejects.toThrow('FORBIDDEN');
     expect(mockActualizar).not.toHaveBeenCalled();
@@ -108,7 +113,7 @@ describe('actualizarContratoAction', () => {
 describe('cerrarContratoAction', () => {
   it('CA8 happy path', async () => {
     mockRequireRole.mockResolvedValue(undefined as never);
-    mockContratofindUnique.mockResolvedValue({ empresaId: 'e1' } as never);
+    mockContratofindUnique.mockResolvedValue({ empresaId: 'e1', trabajadorId: 't1' } as never);
     mockRequireOwnership.mockResolvedValue(undefined as never);
     mockCerrar.mockResolvedValue(CONTRATO as never);
     await cerrarContratoAction('c1', {} as never);
@@ -124,7 +129,7 @@ describe('cerrarContratoAction', () => {
 describe('eliminarContratoAction', () => {
   it('CA10 happy path', async () => {
     mockRequireRole.mockResolvedValue(undefined as never);
-    mockContratofindUnique.mockResolvedValue({ empresaId: 'e1' } as never);
+    mockContratofindUnique.mockResolvedValue({ empresaId: 'e1', trabajadorId: 't1' } as never);
     mockRequireOwnership.mockResolvedValue(undefined as never);
     mockEliminar.mockResolvedValue(CONTRATO as never);
     await eliminarContratoAction('c1');
@@ -135,7 +140,7 @@ describe('eliminarContratoAction', () => {
 describe('restaurarContratoAction', () => {
   it('CA11 happy path — resuelve empresaId del contrato eliminado', async () => {
     mockRequireRole.mockResolvedValue(undefined as never);
-    mockContratofindUnique.mockResolvedValue({ empresaId: 'e1' } as never);
+    mockContratofindUnique.mockResolvedValue({ empresaId: 'e1', trabajadorId: 't1' } as never);
     mockRequireOwnership.mockResolvedValue(undefined as never);
     mockRestaurar.mockResolvedValue(CONTRATO as never);
     await restaurarContratoAction('c1');
@@ -144,9 +149,42 @@ describe('restaurarContratoAction', () => {
 
   it('CA12 ownership violado → forbidden', async () => {
     mockRequireRole.mockResolvedValue(undefined as never);
-    mockContratofindUnique.mockResolvedValue({ empresaId: 'e1' } as never);
+    mockContratofindUnique.mockResolvedValue({ empresaId: 'e1', trabajadorId: 't1' } as never);
     mockRequireOwnership.mockRejectedValue(new Error('FORBIDDEN'));
     await expect(restaurarContratoAction('c1')).rejects.toThrow('FORBIDDEN');
     expect(mockRestaurar).not.toHaveBeenCalled();
+  });
+});
+
+describe('safeAction wrapping — ServiceError → ActionResult', () => {
+  it('CA-NEW1 crearContratoAction ServiceError → { ok: false, error, code }', async () => {
+    mockRequireRole.mockResolvedValue(undefined as never);
+    mockRequireOwnership.mockResolvedValue(undefined as never);
+    mockCrear.mockRejectedValue(new ServiceError('INVALID_STATE', 'Trabajador eliminado'));
+    const result = await crearContratoAction({ empresaId: 'e1', trabajadorId: 't1' } as never);
+    expect(result).toEqual({ ok: false, error: 'Trabajador eliminado', code: 'INVALID_STATE' });
+  });
+
+  it('CA-NEW2 actualizarContratoAction ServiceError → { ok: false, error, code }', async () => {
+    mockRequireRole.mockResolvedValue(undefined as never);
+    mockContratofindUnique.mockRejectedValue(new ServiceError('NOT_FOUND', 'Contrato no encontrado: c99.'));
+    const result = await actualizarContratoAction('c99', {} as never);
+    expect(result).toEqual({ ok: false, error: 'Contrato no encontrado: c99.', code: 'NOT_FOUND' });
+  });
+
+  it('CA-NEW3 cerrarContratoAction ServiceError → { ok: false, error, code }', async () => {
+    mockRequireRole.mockResolvedValue(undefined as never);
+    mockContratofindUnique.mockResolvedValue({ empresaId: 'e1', trabajadorId: 't1' } as never);
+    mockRequireOwnership.mockResolvedValue(undefined as never);
+    mockCerrar.mockRejectedValue(new ServiceError('INVALID_STATE', 'El contrato ya está cerrado.'));
+    const result = await cerrarContratoAction('c1', {} as never);
+    expect(result).toEqual({ ok: false, error: 'El contrato ya está cerrado.', code: 'INVALID_STATE' });
+  });
+
+  it('CA-NEW4 eliminarContratoAction contrato no encontrado → { ok: false, error, code }', async () => {
+    mockRequireRole.mockResolvedValue(undefined as never);
+    mockContratofindUnique.mockResolvedValue(null as never);
+    const result = await eliminarContratoAction('c99');
+    expect(result).toEqual({ ok: false, error: 'Contrato no encontrado: c99.', code: 'NOT_FOUND' });
   });
 });
