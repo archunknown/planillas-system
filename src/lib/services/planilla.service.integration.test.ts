@@ -120,7 +120,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
 
     const periodo = await prisma.periodo.findUniqueOrThrow({
-      where: { mes_anio: { mes: MES, anio: ANIO } },
+      where: { empresaId_mes_anio: { empresaId: e.id, mes: MES, anio: ANIO } },
     });
     const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
 
@@ -145,7 +145,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
 
     const periodo = await prisma.periodo.findUniqueOrThrow({
-      where: { mes_anio: { mes: MES, anio: ANIO } },
+      where: { empresaId_mes_anio: { empresaId: e.id, mes: MES, anio: ANIO } },
     });
     const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
 
@@ -177,7 +177,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
 
     const periodo = await prisma.periodo.findUniqueOrThrow({
-      where: { mes_anio: { mes: MES, anio: ANIO } },
+      where: { empresaId_mes_anio: { empresaId: e.id, mes: MES, anio: ANIO } },
     });
     const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
 
@@ -220,7 +220,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     });
 
     // Pre-crear Periodo + stub con diasTrabajados=26
-    const periodo = await prisma.periodo.create({ data: { mes: MES, anio: ANIO } });
+    const periodo = await prisma.periodo.create({ data: { empresaId: e.id, mes: MES, anio: ANIO } });
     await prisma.planillaDetalle.create({
       data: {
         periodoId: periodo.id,
@@ -267,7 +267,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
 
     const periodo = await prisma.periodo.findUniqueOrThrow({
-      where: { mes_anio: { mes: MES, anio: ANIO } },
+      where: { empresaId_mes_anio: { empresaId: e.id, mes: MES, anio: ANIO } },
     });
     const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
 
@@ -298,7 +298,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
 
     const periodo = await prisma.periodo.findUniqueOrThrow({
-      where: { mes_anio: { mes: MES, anio: ANIO } },
+      where: { empresaId_mes_anio: { empresaId: e.id, mes: MES, anio: ANIO } },
     });
     const count = await prisma.planillaDetalle.count({ where: { periodoId: periodo.id } });
 
@@ -346,7 +346,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
 
     const periodo = await prisma.periodo.findUniqueOrThrow({
-      where: { mes_anio: { mes: MES, anio: ANIO } },
+      where: { empresaId_mes_anio: { empresaId: e.id, mes: MES, anio: ANIO } },
     });
     const count = await prisma.planillaDetalle.count({ where: { periodoId: periodo.id } });
     const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
@@ -369,7 +369,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
 
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
 
-    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { mes_anio: { mes: MES, anio: ANIO } } });
+    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { empresaId_mes_anio: { empresaId: e.id, mes: MES, anio: ANIO } } });
     const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
 
     expect(d.totalIngresos.toNumber()).toBeCloseTo(2234.70, 2);
@@ -384,7 +384,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
 
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
 
-    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { mes_anio: { mes: MES, anio: ANIO } } });
+    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { empresaId_mes_anio: { empresaId: e.id, mes: MES, anio: ANIO } } });
     const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
 
     expect(d.totalIngresos.toNumber()).toBeCloseTo(1895.70, 2);
@@ -403,7 +403,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
 
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
 
-    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { mes_anio: { mes: MES, anio: ANIO } } });
+    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { empresaId_mes_anio: { empresaId: e.id, mes: MES, anio: ANIO } } });
     const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
 
     expect(d.essalud.toNumber()).toBeCloseTo(54.00, 2);
@@ -419,7 +419,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
 
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
 
-    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { mes_anio: { mes: MES, anio: ANIO } } });
+    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { empresaId_mes_anio: { empresaId: e.id, mes: MES, anio: ANIO } } });
     const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
 
     expect(d.essalud.toNumber()).toBeCloseTo(101.70, 2);
@@ -448,7 +448,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
 
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
 
-    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { mes_anio: { mes: MES, anio: ANIO } } });
+    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { empresaId_mes_anio: { empresaId: e.id, mes: MES, anio: ANIO } } });
     const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
 
     expect(d.asignacionEscolar.toNumber()).toBeCloseTo(223.25, 2);
@@ -472,7 +472,7 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
 
     await calcularPlanillaPeriodo(e.id, MES, ANIO);
 
-    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { mes_anio: { mes: MES, anio: ANIO } } });
+    const periodo = await prisma.periodo.findUniqueOrThrow({ where: { empresaId_mes_anio: { empresaId: e.id, mes: MES, anio: ANIO } } });
     const d = await prisma.planillaDetalle.findFirstOrThrow({ where: { periodoId: periodo.id } });
 
     expect(d.asignacionEscolar.toNumber()).toBeCloseTo(0, 2);
@@ -506,8 +506,8 @@ describe('calcularPlanillaPeriodo — integración E2E', () => {
 
     // Pre-crear período diciembre 2025 con PlanillaDetalle proxy de gratificación
     const periodoGratif = await prisma.periodo.upsert({
-      where: { mes_anio: { mes: 12, anio: 2025 } },
-      create: { mes: 12, anio: 2025 },
+      where: { empresaId_mes_anio: { empresaId: e.id, mes: 12, anio: 2025 } },
+      create: { empresaId: e.id, mes: 12, anio: 2025 },
       update: {},
     });
     await prisma.planillaDetalle.create({

@@ -55,8 +55,8 @@ export async function calcularPlanillaPeriodo(
 
   // a) Buscar o crear el Periodo
   const periodo = await prisma.periodo.upsert({
-    where: { mes_anio: { mes, anio } },
-    create: { mes, anio },
+    where: { empresaId_mes_anio: { empresaId, mes, anio } },
+    create: { empresaId, mes, anio },
     update: {},
   });
 
@@ -115,6 +115,7 @@ export async function calcularPlanillaPeriodo(
     const horasExtras25 = detalle.horasExtras25.toNumber();
     const horasExtras35 = detalle.horasExtras35.toNumber();
     const horasExtras100 = detalle.horasExtras100.toNumber();
+    // minutosAtraso almacenado en el detalle pero no consumido por el cálculo; deuda del motor
 
     const datos: DatosPeriodoInput = {
       remuneracionBase,
