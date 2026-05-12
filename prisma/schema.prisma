@@ -82,6 +82,7 @@ model Empresa {
   trabajadores    Trabajador[]
   contratos       Contrato[]
   usuarios        UsuarioEmpresa[]
+  periodos        Periodo[]
 
   @@map("empresas")
 }
@@ -215,15 +216,17 @@ enum EstadoPeriodo {
 
 model Periodo {
   id            String        @id @default(cuid())
+  empresaId     String
   mes           Int           // 1-12
   anio          Int
   estado        EstadoPeriodo @default(ABIERTO)
   creadoEn      DateTime      @default(now())
   actualizadoEn DateTime      @updatedAt
 
+  empresa       Empresa       @relation(fields: [empresaId], references: [id])
   detalles      PlanillaDetalle[]
 
-  @@unique([mes, anio])
+  @@unique([empresaId, mes, anio])
   @@map("periodos")
 }
 
@@ -239,7 +242,7 @@ model PlanillaDetalle {
   horasExtras25       Decimal  @default(0) @db.Decimal(6, 2)  // Horas extra al 25%
   horasExtras35       Decimal  @default(0) @db.Decimal(6, 2)  // Horas extra al 35%
   horasExtras100      Decimal  @default(0) @db.Decimal(6, 2)  // Horas extra al 100% (nocturna/feriado)
-  minutosAtraso       Int      @default(0)
+  minutosAtraso       Int      @default(0) // almacenado; no consumido por el cálculo actual (deuda del motor)
   faltas              Int      @default(0)
   feriados            Int      @default(0) // Días feriados trabajados
 
