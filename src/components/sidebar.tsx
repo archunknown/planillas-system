@@ -6,8 +6,8 @@ import {
   Building2,
   Users,
   FileText,
-  CalculatorIcon,
-  BadgeDollarSign,
+  Calendar,
+  Receipt,
   LayoutDashboard,
   ChevronDown,
   LogOut,
@@ -39,8 +39,8 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Empresas', href: '/empresas', icon: <Building2 className="size-4" />, roles: ['ADMIN'] },
   { label: 'Trabajadores', href: '/trabajadores', icon: <Users className="size-4" />, roles: ['ADMIN', 'CONTADOR', 'CLIENTE'] },
   { label: 'Contratos', href: '/contratos', icon: <FileText className="size-4" />, roles: ['ADMIN', 'CONTADOR', 'CLIENTE'] },
-  { label: 'Planilla', href: '/planilla', icon: <CalculatorIcon className="size-4" />, roles: ['ADMIN', 'CONTADOR'] },
-  { label: 'Liquidaciones', href: '/liquidaciones', icon: <BadgeDollarSign className="size-4" />, roles: ['ADMIN', 'CONTADOR', 'CLIENTE'] },
+  { label: 'Planilla', href: '/planilla', icon: <Calendar className="size-4" />, roles: ['ADMIN', 'CONTADOR', 'CLIENTE'] },
+  { label: 'Liquidaciones', href: '/liquidaciones', icon: <Receipt className="size-4" />, roles: ['ADMIN', 'CONTADOR', 'CLIENTE'] },
 ];
 
 interface SidebarProps {
