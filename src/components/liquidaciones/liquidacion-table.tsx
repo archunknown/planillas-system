@@ -1,7 +1,5 @@
 'use client';
 import Link from 'next/link';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-
 import { Button } from '@/components/ui/button';
 import { AnularLiquidacionDialog } from './anular-liquidacion-dialog';
 
@@ -16,6 +14,7 @@ export type LiquidacionConTrabajador = {
   contrato: {
     id: string;
     trabajador: {
+      dni: string;
       apellidoPaterno: string;
       apellidoMaterno: string;
       nombres: string;
@@ -89,18 +88,14 @@ export function LiquidacionTable({ liquidaciones, canEdit }: Props) {
                   {canEdit && !liq.anulada && (
                     <AnularLiquidacionDialog liquidacionId={liq.id} />
                   )}
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger>
-                        <span tabIndex={0}>
-                          <Button size="sm" variant="outline" disabled>
-                            PDF
-                          </Button>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>Próximamente</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    nativeButton={false}
+                    render={<a href={`/api/boletas/liquidacion/${liq.id}`} download />}
+                  >
+                    PDF
+                  </Button>
                 </div>
               </td>
             </tr>
