@@ -28,7 +28,7 @@ export default async function LiquidacionesPage({ searchParams }: Props) {
           select: {
             id: true,
             trabajador: {
-              select: { apellidoPaterno: true, apellidoMaterno: true, nombres: true },
+              select: { dni: true, apellidoPaterno: true, apellidoMaterno: true, nombres: true },
             },
           },
         },

@@ -98,18 +98,14 @@ export function DetallePeriodoTable({ detalles, periodoId, estado, canEdit }: Pr
                   <td className="py-2 pr-2">S/ {d.essalud.toFixed(2)}</td>
                   <td className="py-2 pr-2 font-semibold">S/ {d.netoPagar.toFixed(2)}</td>
                   <td className="py-2">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger>
-                          <span tabIndex={0}>
-                            <Button size="sm" variant="outline" disabled>
-                              PDF
-                            </Button>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>Próximamente</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      nativeButton={false}
+                      render={<a href={`/api/boletas/pago/${d.id}`} download />}
+                    >
+                      PDF
+                    </Button>
                   </td>
                 </tr>
               ),

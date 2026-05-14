@@ -47,6 +47,7 @@ const makeLiq = (overrides: Partial<LiquidacionConTrabajador> = {}): Liquidacion
   contrato: {
     id: 'c1',
     trabajador: {
+      dni: '12345678',
       apellidoPaterno: 'García',
       apellidoMaterno: 'López',
       nombres: 'Juan',

@@ -22,7 +22,7 @@ export default async function LiquidacionDetallePage({ params }: Props) {
           cargo: true,
           motivoCese: true,
           trabajador: {
-            select: { apellidoPaterno: true, apellidoMaterno: true, nombres: true },
+            select: { dni: true, apellidoPaterno: true, apellidoMaterno: true, nombres: true },
           },
         },
       },
@@ -46,9 +46,19 @@ export default async function LiquidacionDetallePage({ params }: Props) {
         >
           ← Volver al contrato
         </Button>
-        {canEdit && !liq.anulada && (
-          <AnularLiquidacionDialog liquidacionId={liq.id} />
-        )}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            nativeButton={false}
+            render={<a href={`/api/boletas/liquidacion/${liq.id}`} download />}
+          >
+            Descargar boleta
+          </Button>
+          {canEdit && !liq.anulada && (
+            <AnularLiquidacionDialog liquidacionId={liq.id} />
+          )}
+        </div>
       </div>
       <LiquidacionDetalle liquidacion={liq} />
     </div>
